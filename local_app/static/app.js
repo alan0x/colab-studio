@@ -389,11 +389,24 @@
               <span>${pct}%</span>
             </div>
           </div>
+          <button class="nt-btn danger cancel-job-btn" style="margin-top:6px;background:rgba(239,68,68,0.18);border:1px solid rgba(239,68,68,0.45);color:#fca5a5;">⏹ 取消生成</button>
         </div>
         <div class="node-footer">
           <div class="node-prompt">${job.prompt || ""}</div>
         </div>
       `;
+      el.querySelector(".cancel-job-btn").addEventListener("click", async () => {
+        try {
+          await api(`/api/jobs/${job.job_id}/cancel`, { method: "POST" });
+          state.activeJobs = state.activeJobs.filter((j) => j.job_id !== job.job_id);
+          renderCanvas();
+          $("generateBtn").disabled = false;
+          updateGenerateBtnLabel();
+          toast("已取消当前生成任务", "success");
+        } catch (e) {
+          toast(e.message, "error");
+        }
+      });
       layer.appendChild(el);
     }
 
@@ -496,11 +509,16 @@
   }
 
   // ==================== COMPOSER MODE & MODELS ====================
+  function updateGenerateBtnLabel() {
+    $("generateBtnText").textContent = state.mode === "image" ? "生成图片" : "生成视频";
+  }
+
   function setMode(mode) {
     state.mode = mode;
     document.querySelectorAll(".mode-btn").forEach((b) => b.classList.toggle("active", b.dataset.mode === mode));
     $("durationSelect").classList.toggle("hidden", mode !== "video");
     $("refSlot").classList.toggle("hidden", mode !== "video");
+    updateGenerateBtnLabel();
 
     const sel = $("modelSelect");
     sel.innerHTML = MODELS[mode].map((m) => `<option value="${m.id}">${m.label}</option>`).join("");
@@ -821,7 +839,7 @@
       toast(e.message, "error");
     } finally {
       btn.disabled = false;
-      $("generateBtnText").textContent = "生成";
+      updateGenerateBtnLabel();
       refreshStatus(true);
     }
   }

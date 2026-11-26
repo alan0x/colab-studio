@@ -103,6 +103,8 @@ class ColabManager:
             "booted_at": None,
         }
         self.active_job_id: Optional[str] = None
+        self._active_proc: Optional[subprocess.Popen[str]] = None
+        self._cancel_requested: bool = False
         self.last_activity_at: float = time.time()
         self.last_refresh_at: float = 0.0
         self.last_error: Optional[str] = None
@@ -504,6 +506,22 @@ class ColabManager:
         except Exception as e:
             return 1, "", str(e)
 
+    def cancel_active_job(self) -> dict[str, Any]:
+        self._cancel_requested = True
+        proc = self._active_proc
+        if proc is not None and proc.poll() is None:
+            try:
+                proc.terminate()
+            except Exception:
+                pass
+        if self.session.get("active"):
+            # Interrupt & clear remote GPU kernel in background without destroying the warm VM
+            threading.Thread(
+                target=lambda: self._run(["restart-kernel", "-s", SESSION_NAME], timeout=25.0),
+                daemon=True,
+            ).start()
+        return {"ok": True}
+
     def run_generation(
         self,
         job_id: str,
@@ -514,6 +532,7 @@ class ColabManager:
     ) -> dict[str, Any]:
         with self._gpu_lock:
             self.active_job_id = job_id
+            self._cancel_requested = False
             self.last_activity_at = time.time()
             try:
                 settings = self.get_settings()
@@ -524,11 +543,15 @@ class ColabManager:
                     preferred_gpu=preferred_gpu,
                     progress_cb=lambda msg, pct: on_update({"status": "booting", "stage": msg, "progress": pct}),
                 )
+                if self._cancel_requested:
+                    raise RuntimeError("任务已取消")
 
                 # 2. Ensure diffusers & codecs are installed once per VM
                 self._ensure_bootstrapped(
                     progress_cb=lambda msg, pct: on_update({"status": "preparing", "stage": msg, "progress": pct})
                 )
+                if self._cancel_requested:
+                    raise RuntimeError("任务已取消")
 
                 # 3. Upload reference material if Image-to-Video
                 remote_input_path = None
@@ -577,12 +600,15 @@ class ColabManager:
                     bufsize=1,
                     env=_clean_env(),
                 )
+                self._active_proc = proc
 
                 result_meta: Optional[dict[str, Any]] = None
                 recent_logs: list[str] = []
 
                 assert proc.stdout is not None
                 for raw_line in proc.stdout:
+                    if self._cancel_requested:
+                        break
                     line = _strip_ansi(raw_line).strip()
                     if not line:
                         continue
@@ -610,6 +636,10 @@ class ColabManager:
 
                 stderr_text = _strip_ansi(proc.stderr.read() if proc.stderr else "").strip()
                 rc = proc.wait()
+                self._active_proc = None
+
+                if self._cancel_requested:
+                    raise RuntimeError("任务已取消")
 
                 if rc != 0 or not result_meta or not result_meta.get("remote_output"):
                     err_detail = (
@@ -640,7 +670,9 @@ class ColabManager:
                 result_meta["filename"] = final_local.name
                 return result_meta
             finally:
+                self._active_proc = None
                 self.active_job_id = None
+                self._cancel_requested = False
                 self.last_activity_at = time.time()
                 try:
                     self.refresh_state(force=True)

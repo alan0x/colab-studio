@@ -383,6 +383,17 @@ class StudioHandler(BaseHTTPRequestHandler):
             except Exception as e:
                 return self.send_json(400, {"error": str(e)})
 
+        if path.startswith("/api/jobs/") and path.endswith("/cancel"):
+            job_id = path[len("/api/jobs/"):-len("/cancel")].strip("/")
+            with _STATE_LOCK:
+                job = _JOBS.get(job_id)
+                if job and job.get("status") not in ("completed", "failed"):
+                    job["status"] = "failed"
+                    job["stage"] = "已取消"
+                    job["error"] = "任务已手动取消"
+            COLAB.cancel_active_job()
+            return self.send_json(200, {"ok": True, "cancelled": job_id})
+
         if path == "/api/drive/sync":
             try:
                 res = DRIVE.sync_all(load_local_items=load_items, save_local_items=save_items)
