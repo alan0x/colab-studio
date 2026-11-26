@@ -9,3 +9,8 @@ outputs/*
 __pycache__/
 *.py[cod]
 .DS_Store
+
+# Built macOS app bundles
+dist/
+*.iconset/
+*.icns

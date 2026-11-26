@@ -36,9 +36,10 @@ from colab_manager import ColabManager  # noqa: E402
 from drive_manager import DriveManager  # noqa: E402
 
 ROOT_DIR = THIS_DIR.parent
+DATA_DIR = Path(os.environ.get("STUDIO_DATA_DIR", str(ROOT_DIR))).expanduser().resolve()
 STATIC_DIR = THIS_DIR / "static"
-OUTPUTS_DIR = ROOT_DIR / "outputs"
-CONFIG_PATH = ROOT_DIR / "config.json"
+OUTPUTS_DIR = DATA_DIR / "outputs"
+CONFIG_PATH = DATA_DIR / "config.json"
 HISTORY_PATH = OUTPUTS_DIR / "history.json"
 
 OUTPUTS_DIR.mkdir(parents=True, exist_ok=True)
