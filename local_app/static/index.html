@@ -3,382 +3,419 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Colab Agent Studio — 云端多模态 AI Agent & 无限画布</title>
+  <title>Colab Studio</title>
   <link rel="stylesheet" href="/styles.css" />
 </head>
 <body>
-  <!-- ==================== AI AGENT WORKSPACE (ChatGPT / Claude / Antigravity Style) ==================== -->
-  <div class="agent-workspace" id="agentWorkspace">
-    <!-- Left Sidebar: Conversations + Brain & Tool Toggles -->
-    <aside class="agent-sidebar">
-      <button class="new-chat-btn" id="newChatBtn">
-        <span>＋</span> 新建对话
-      </button>
+  <div class="app-frame">
+    <!-- ==================== INTEGRATED 48px APPLICATION TOPBAR ==================== -->
+    <header class="topbar" id="appTopbar">
+      <div class="topbar-left">
+        <button class="icon-btn" id="sidebarToggleBtn" title="展开/收起侧边栏">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M9 4v16"/></svg>
+        </button>
 
-      <div class="chat-list" id="chatSessionList"></div>
-
-      <div class="agent-config-panel">
-        <div class="cfg-title">🧠 云端大脑模型（Colab GPU）</div>
-        <select class="cfg-select" id="agentModelSelect">
-          <option value="qwen3.8-27b">Qwen3.8-27B · 旗舰全模态 (L4/A100)</option>
-          <option value="qwen3.8-27b-t4">Qwen3.8-27B Q2 · 轻量版 (T4 可跑)</option>
-          <option value="qwen3.5-9b">Qwen3.5-9B · 极速全模态 (T4/L4)</option>
-          <option value="qwen2.5-vl-7b">Qwen2.5-VL-7B · 视觉专家 (T4)</option>
-        </select>
-
-        <div class="cfg-toggles">
-          <label class="cfg-check"><input type="checkbox" id="chkThinking" checked /><span>🧠 深度思考链</span></label>
-          <label class="cfg-check"><input type="checkbox" id="chkToolCanvas" checked /><span>🎨 无限画布生图/视频</span></label>
-          <label class="cfg-check"><input type="checkbox" id="chkToolWeb" checked /><span>🌐 实时联网搜索</span></label>
-          <label class="cfg-check"><input type="checkbox" id="chkToolLocal" checked /><span>💻 本地文件与终端</span></label>
-          <label class="cfg-check"><input type="checkbox" id="chkRequireApproval" checked /><span>🛡️ 写文件/命令前确认</span></label>
-        </div>
-
-        <div class="cfg-ws">
-          <span class="cfg-label">本地工作区目录</span>
-          <input type="text" id="agentWorkspaceInput" placeholder="输入本地项目路径..." />
-        </div>
-      </div>
-    </aside>
-
-    <!-- Main Chat Area -->
-    <main class="agent-main">
-      <div class="chat-scroll" id="chatScroll">
-        <div class="chat-welcome" id="agentWelcome">
-          <div class="welcome-badge">✦ Qwen3.8-27B 全模态大脑 · 零网页托管 Colab GPU</div>
-          <h1>你的本地 AI Agent 工作台</h1>
-          <p>支持看图识图、深度思考、实时联网、读写本地代码运行终端，还能直接用自然语言指挥无限画布生成图片和视频。</p>
-          <div class="agent-starters">
-            <button class="starter-card" data-prompt="帮我构思一个纯日系二次元动漫风格的「机械末日废土中一尘不染的长发少女」提示词，然后直接调用无限画布的 Animagine XL 4.0 为我生成一张 16:9 图片。">
-              <strong>🎨 指挥 Agent 画图</strong>
-              <span>自动构思专业提示词并调用画布生图</span>
-            </button>
-            <button class="starter-card" data-prompt="请帮我联网搜索 Qwen3.8-27B 的最新特性和能力亮点，并整理成清晰的中文对比摘要。">
-              <strong>🌐 实时联网调研</strong>
-              <span>调用搜索引擎与网页抓取总结最新资讯</span>
-            </button>
-            <button class="starter-card" data-prompt="请列出当前本地工作区的文件，然后写一个 Python 脚本 hello_agent.py 打印系统信息并运行它。">
-              <strong>💻 本地编程与终端</strong>
-              <span>读写工作区文件、运行脚本（执行前确认）</span>
-            </button>
-            <button class="starter-card" id="starterAttachImgBtn">
-              <strong>🖼️ 发图给多模态模型看</strong>
-              <span>拖入截图、设计稿或代码文件直接分析</span>
-            </button>
-          </div>
-        </div>
-
-        <div class="chat-messages" id="chatMessages"></div>
-      </div>
-
-      <!-- Bottom Chat Composer -->
-      <div class="chat-composer-wrap">
-        <div class="chat-attachments hidden" id="chatAttachments"></div>
-        <div class="chat-composer">
-          <input type="file" id="chatFileInput" accept="image/*,.txt,.md,.py,.js,.ts,.json,.csv,.html,.css,.yml,.yaml,.sh" multiple hidden />
-          <button class="chat-attach-btn" id="chatAttachBtn" title="上传图片（供多模态识别）或代码/文本文档">📎</button>
-          <textarea id="chatInput" rows="2" placeholder="向 Agent 提问、发图分析、写代码，或直接说「帮我画一张…」… (Enter 发送，Shift+Enter 换行)"></textarea>
-          <button class="generate-cta chat-send-btn" id="chatSendBtn">
-            <span id="chatSendText">发送</span>
+        <div class="segmented-switch" role="tablist">
+          <button class="seg-btn active" data-view="agent" id="switchAgentBtn" role="tab">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+            <span>对话</span>
+          </button>
+          <button class="seg-btn" data-view="canvas" id="switchCanvasBtn" role="tab">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/></svg>
+            <span>画布</span>
+            <span class="seg-count" id="nodeCountLabel">0</span>
           </button>
         </div>
       </div>
-    </main>
-  </div>
 
-  <!-- Full-Viewport Infinite Canvas (Hidden while in Agent view) -->
-  <div class="canvas-viewport hidden" id="canvasViewport">
-    <div class="canvas-grid" id="canvasGrid"></div>
-    <div class="canvas-world" id="canvasWorld">
-      <svg class="connector-layer" id="connectorLayer"></svg>
-      <div class="nodes-layer" id="nodesLayer"></div>
-    </div>
+      <div class="topbar-right">
+        <!-- Compact Hardware & Compute-Unit Trigger (opens structured popover, never wraps!) -->
+        <div class="popover-anchor">
+          <button class="chrome-pill hw-trigger" id="hwPopoverBtn" title="查看显卡状态、剩余计算单元与启停控制">
+            <span class="status-dot offline" id="gpuDot"></span>
+            <span class="hw-short-gpu" id="gpuShortLabel">待机</span>
+            <span class="pill-divider"></span>
+            <span class="hw-short-cu tabular" id="quotaShortLabel">-- CU</span>
+            <svg class="chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M6 9l6 6 6-6"/></svg>
+          </button>
 
-    <!-- Empty Canvas Welcome State -->
-    <div class="canvas-welcome" id="canvasWelcome">
-      <div class="welcome-glow"></div>
-      <div class="welcome-badge">⚡ 零网页 · 云端 Colab GPU 全自动托管</div>
-      <h1>在无限画布上，像用本地显卡一样创作图片与视频</h1>
-      <p>直接拖入参考素材图或在下方输入提示词点击生成，系统将自动按需开启你的 Google Colab 显卡、实时渲染并回传到本地画布，闲置自动释放算力。</p>
-      <div class="welcome-chips">
-        <button class="sample-chip" data-mode="image" data-prompt="A cinematic wide shot of a neon-lit futuristic Tokyo alleyway in gentle rain, glossy reflections on asphalt, volumetric mist, 8k photorealistic">
-          ✨ 试一张赛博雨夜图（FLUX 4步）
-        </button>
-        <button class="sample-chip" data-mode="video" data-prompt="A golden retriever puppy running happily through a sunlit flower meadow, cinematic slow motion tracking shot, warm golden hour light">
-          🎬 试一段电影级文生视频
-        </button>
-        <button class="sample-chip" id="welcomeUploadBtn">
-          📤 拖入 / 导入本地参考图
-        </button>
-      </div>
-    </div>
+          <div class="surface-popover hw-popover hidden" id="hwPopover">
+            <div class="pop-head">
+              <span class="pop-title">算力与显卡</span>
+              <button class="icon-btn xs" id="closeHwBtn">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M18 6L6 18M6 6l12 12"/></svg>
+              </button>
+            </div>
 
-    <!-- Drag & Drop Overlay -->
-    <div class="drop-overlay hidden" id="dropOverlay">
-      <div class="drop-box">
-        <div class="drop-icon">🖼️</div>
-        <div class="drop-title">松开鼠标，立即将素材图导入无限画布</div>
-        <div class="drop-sub">导入后可直接作为首帧参考生成动态视频</div>
-      </div>
-    </div>
-  </div>
+            <div class="hw-kv-list">
+              <div class="hw-kv">
+                <span class="k">运行状态</span>
+                <span class="v" id="gpuStatusText">待机 · 生成时自动开机</span>
+              </div>
+              <div class="hw-kv">
+                <span class="k">剩余算力</span>
+                <span class="v tabular" id="quotaText">请先登录查看余额</span>
+              </div>
+              <div class="hw-kv hidden" id="autoStopRow">
+                <span class="k">空闲保护</span>
+                <span class="v warn tabular" id="autoStopText">10m 后自动释放</span>
+              </div>
+            </div>
 
-  <!-- TOP FLOATING HUD: Brand + Workspace Mode Switch + Live GPU + Quota + Drive + Google Account -->
-  <header class="hud-top">
-    <div class="hud-capsule brand-capsule">
-      <div class="brand-mark">✦</div>
-      <div class="workspace-switcher">
-        <button class="ws-tab active" data-view="agent" id="switchAgentBtn">💬 AI Agent</button>
-        <button class="ws-tab" data-view="canvas" id="switchCanvasBtn">🎨 无限画布 <span class="ws-count" id="nodeCountLabel">0</span></button>
-      </div>
-    </div>
+            <div class="pop-field">
+              <label for="preferredGpuSelect">优先申请显卡</label>
+              <select class="field-select" id="preferredGpuSelect">
+                <option value="L4">NVIDIA L4 · 24GB（推荐）</option>
+                <option value="T4">NVIDIA T4 · 16GB（最省单元）</option>
+                <option value="A100">NVIDIA A100 · 40GB（高配）</option>
+              </select>
+            </div>
 
-    <div class="hud-capsule hardware-capsule">
-      <!-- Live GPU Indicator & Picker -->
-      <div class="hw-item gpu-status" id="gpuStatusChip" title="点击左侧下拉可预设显卡；生成时若未开机将自动申请">
-        <span class="status-dot offline" id="gpuDot"></span>
-        <div class="hw-stack">
-          <span class="hw-label">当前显卡</span>
-          <span class="hw-value" id="gpuStatusText">待机 · 生成自动开机</span>
-        </div>
-      </div>
+            <div class="pop-field inline-num">
+              <label for="autoStopInput">空闲自动释放（分钟，0 关闭）</label>
+              <input type="number" id="autoStopInput" min="0" max="120" value="10" />
+            </div>
 
-      <div class="hud-sep"></div>
-
-      <select class="hud-select" id="preferredGpuSelect" title="选择优先申请的 Google Colab 显卡">
-        <option value="L4">L4 · 24GB (推荐)</option>
-        <option value="T4">T4 · 16GB (省单元)</option>
-        <option value="A100">A100 · 40GB (高配)</option>
-      </select>
-
-      <button class="hud-btn hud-btn-ghost" id="toggleGpuBtn" title="手动开机或立即释放云端显卡">
-        开机
-      </button>
-
-      <div class="hud-sep"></div>
-
-      <!-- Real Compute Units Balance & Remaining Hours -->
-      <div class="hw-item quota-item" id="quotaChip" title="直接同步自你的 Google Colab 实时账户余额">
-        <div class="hw-stack">
-          <span class="hw-label">剩余算力与可用时长</span>
-          <span class="hw-value" id="quotaText">请先登录查看余额</span>
-        </div>
-      </div>
-
-      <div class="idle-pill hidden" id="autoStopPill" title="空闲达到设定时间将自动关闭云端显卡，避免浪费计算单元">
-        🛡️ <span id="autoStopText">空闲自动释放</span>
-      </div>
-
-      <div class="hud-sep"></div>
-
-      <!-- Google Drive Sync Capsule -->
-      <div class="drive-wrap">
-        <button class="hud-btn hud-btn-ghost drive-trigger" id="driveBtn" title="Google Drive 云端素材与作品库同步">
-          ☁️ <span id="driveBtnText">Drive 云盘</span>
-        </button>
-        <div class="drive-popover hidden" id="drivePopover">
-          <div class="adv-header">
-            <span>☁️ Google Drive 云端同步</span>
-            <button class="icon-close" id="closeDriveBtn">✕</button>
-          </div>
-          <p class="drive-desc">
-            素材与生成的图片/视频会自动存入你的 Google Drive <code>ColabCanvasStudio/</code> 目录（直接利用你的 Google One 空间），画布布局也会云端备份。
-          </p>
-          <div class="drive-stat-row">
-            <span id="driveStatText">登录后自动开启云盘同步</span>
-          </div>
-          <label class="drive-toggle-row">
-            <input type="checkbox" id="driveAutoSyncCheck" checked />
-            <span>自动同步素材与生成作品到 Google Drive</span>
-          </label>
-          <div class="drive-actions">
-            <button class="btn-accent full-w" id="driveSyncNowBtn">🔄 立即双向同步云盘</button>
-            <a class="btn-ghost-box full-w hidden" id="driveOpenFolderLink" target="_blank">↗️ 打开 Google Drive 文件夹</a>
-          </div>
-        </div>
-      </div>
-
-      <div class="hud-sep"></div>
-
-      <!-- Google Account Status / Sign-in -->
-      <button class="hud-btn hud-btn-primary" id="accountBtn">
-        登录 Google 账号
-      </button>
-    </div>
-  </header>
-
-  <!-- LEFT FLOATING TOOL RAIL (LibTV / Figma Style, Canvas View Only) -->
-  <aside class="tool-rail hidden" id="canvasToolRail">
-    <button class="rail-btn active" id="toolSelectBtn" title="选择与拖拽卡片 (V)">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 4l7 17 2.5-7.5L21 11 4 4z"/></svg>
-    </button>
-    <button class="rail-btn" id="toolPanBtn" title="抓手平移画布 (按住 Space 也可平移)">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 11V6a2 2 0 0 0-4 0v4M14 10V4a2 2 0 0 0-4 0v6M10 10.5V6a2 2 0 0 0-4 0v8l-1.5-1.5a2 2 0 0 0-2.8 2.8l5.3 5.3A4 4 0 0 0 9.8 22H15a5 5 0 0 0 5-5v-4a2 2 0 0 0-2-2z"/></svg>
-    </button>
-    <div class="rail-sep"></div>
-    <button class="rail-btn" id="importMaterialBtn" title="导入本地参考图片到画布">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="3"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="M21 15l-5-5L5 21"/></svg>
-    </button>
-    <button class="rail-btn" id="tidyLayoutBtn" title="一键整齐排列画布（按图文关联自动分组）">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/></svg>
-    </button>
-    <button class="rail-btn" id="fitViewBtn" title="聚焦全部作品 (适应画布)">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7"/></svg>
-    </button>
-    <div class="rail-sep"></div>
-    <button class="rail-btn" id="openFolderBtn" title="在 Finder 打开本地 outputs 作品文件夹">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 7a2 2 0 0 1 2-2h5l2 2h7a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7z"/></svg>
-    </button>
-  </aside>
-
-  <!-- BOTTOM-LEFT ZOOM PILL (Canvas View Only) -->
-  <div class="zoom-pill hidden" id="canvasZoomPill">
-    <button class="zoom-btn" id="zoomOutBtn" title="缩小">−</button>
-    <button class="zoom-val" id="zoomResetBtn" title="重置为 100%">100%</button>
-    <button class="zoom-btn" id="zoomInBtn" title="放大">+</button>
-  </div>
-
-  <!-- BOTTOM FLOATING COMPOSER DOCK (Canvas View Only) -->
-  <div class="composer-wrap hidden" id="canvasComposerWrap">
-    <!-- Advanced Settings Popover -->
-    <div class="adv-popover hidden" id="advPopover">
-      <div class="adv-header">
-        <span>高级参数与省单元设置</span>
-        <button class="icon-close" id="closeAdvBtn">✕</button>
-      </div>
-      <div class="adv-grid">
-        <label class="adv-field">
-          <span>推理步数 (Steps)</span>
-          <input type="number" id="stepsInput" min="1" max="60" value="28" />
-        </label>
-        <label class="adv-field">
-          <span>引导强度 (Guidance)</span>
-          <input type="number" id="guidanceInput" step="0.5" min="0" max="15" value="3.5" />
-        </label>
-        <label class="adv-field">
-          <span>随机种子 (-1 随机)</span>
-          <input type="number" id="seedInput" value="-1" />
-        </label>
-        <label class="adv-field">
-          <span>空闲自动关机 (分钟, 0关闭)</span>
-          <input type="number" id="autoStopInput" min="0" max="120" value="10" />
-        </label>
-      </div>
-      <label class="adv-field full">
-        <span>反向提示词 (Negative Prompt)</span>
-        <input type="text" id="negPromptInput" value="worst quality, blurry, jittery, distorted, watermark, deformed" />
-      </label>
-    </div>
-
-    <div class="composer-dock" id="composerDock">
-      <!-- Top Row: Mode + Model + Ratio + Duration + Settings -->
-      <div class="composer-controls">
-        <div class="mode-switch">
-          <button class="mode-btn active" data-mode="video">🎬 生成视频</button>
-          <button class="mode-btn" data-mode="image">🖼️ 生成图片</button>
-        </div>
-
-        <select class="pill-select" id="modelSelect" title="选择生成模型"></select>
-
-        <select class="pill-select" id="ratioSelect" title="画面比例">
-          <option value="16:9" selected>16:9 横屏</option>
-          <option value="9:16">9:16 竖屏</option>
-          <option value="1:1">1:1 方形</option>
-          <option value="4:3">4:3 经典</option>
-        </select>
-
-        <select class="pill-select" id="durationSelect" title="视频时长 / 帧数">
-          <option value="25">极速 ~1.5s</option>
-          <option value="49" selected>标准 ~3s</option>
-          <option value="81">加长 ~5s</option>
-        </select>
-
-        <button class="pill-btn" id="advBtn" title="展开更多参数与空闲自动关机设置">⚙ 参数</button>
-      </div>
-
-      <!-- Main Row: Reference Material Slot + Prompt + Generate CTA -->
-      <div class="composer-main">
-        <input type="file" id="materialFileInput" accept="image/*" hidden />
-
-        <div class="ref-slot" id="refSlot" title="点击上传本地参考图，或在画布卡片上点「以此图生视频」">
-          <div class="ref-empty" id="refEmpty">
-            <span class="ref-plus">+</span>
-            <span class="ref-txt">参考图</span>
-          </div>
-          <div class="ref-filled hidden" id="refFilled">
-            <img id="refThumb" alt="参考图" />
-            <button class="ref-clear" id="refClearBtn" title="移除参考图">✕</button>
+            <button class="btn-outline full-w" id="toggleGpuBtn">立即开机</button>
           </div>
         </div>
 
-        <textarea
-          id="promptInput"
-          rows="2"
-          placeholder="描述你想生成的画面、角色动作、光影与镜头运镜…（支持 ⌘+Enter 直接生成）"
-        ></textarea>
-
-        <button class="generate-cta" id="generateBtn">
-          <span class="cta-sparkle">✦</span>
-          <span id="generateBtnText">生成</span>
-        </button>
-      </div>
-    </div>
-  </div>
-
-  <!-- GOOGLE OAUTH2 IN-APP LOGIN MODAL (Zero Colab Webpage!) -->
-  <div class="modal-backdrop hidden" id="authModal">
-    <div class="modal-card">
-      <div class="modal-head">
-        <div>
-          <h3>绑定 Google 账号（仅需一次）</h3>
-          <p class="modal-sub">通过 Google 官方 OAuth 授权，本地 App 即可直接调用你的 Google One Pro 赠送的 Colab 显卡与余额，全程无需打开 Colab 网页。</p>
-        </div>
-        <button class="icon-close" id="closeAuthModalBtn">✕</button>
-      </div>
-
-      <div class="oauth-steps">
-        <div class="oauth-step">
-          <div class="step-tag">步骤 1</div>
-          <div class="step-body">
-            <p>点击下方按钮打开 Google 官方授权页面，登录你的 Google One Pro 账号并点击允许。</p>
-            <button class="btn-solid" id="startOauthBtn">🔐 打开 Google 官方授权页</button>
+        <!-- Google Drive Popover -->
+        <div class="popover-anchor">
+          <button class="chrome-pill drive-trigger" id="driveBtn" title="Google Drive 云盘同步">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M17.5 19H9a7 7 0 1 1 6.71-9h1.79a4.5 4.5 0 1 1 0 9Z"/></svg>
+            <span class="hide-sm" id="driveBtnText">Drive</span>
+          </button>
+          <div class="surface-popover drive-popover hidden" id="drivePopover">
+            <div class="pop-head">
+              <span class="pop-title">Google Drive 同步</span>
+              <button class="icon-btn xs" id="closeDriveBtn">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M18 6L6 18M6 6l12 12"/></svg>
+              </button>
+            </div>
+            <p class="pop-desc">素材、生成的图片与视频以及画布布局自动备份至 Google Drive <code>ColabCanvasStudio/</code>。</p>
+            <div class="pop-stat" id="driveStatText">登录后自动开启云盘同步</div>
+            <label class="switch-row">
+              <span>自动同步素材与作品</span>
+              <input type="checkbox" class="toggle-input" id="driveAutoSyncCheck" checked />
+              <span class="toggle-track"></span>
+            </label>
+            <div class="pop-actions">
+              <button class="btn-primary full-w" id="driveSyncNowBtn">立即双向同步</button>
+              <a class="btn-outline full-w hidden" id="driveOpenFolderLink" target="_blank">在 Google Drive 中打开</a>
+            </div>
           </div>
         </div>
 
-        <div class="oauth-step">
-          <div class="step-tag">步骤 2</div>
-          <div class="step-body">
-            <p>授权完成后，复制 Google 页面显示的授权码，粘贴到下方输入框：</p>
-            <div class="code-row">
-              <input type="text" id="oauthCodeInput" placeholder="粘贴 Google 显示的授权码 (4/0A...)" />
-              <button class="btn-accent" id="completeOauthBtn">完成绑定</button>
+        <!-- Google Account -->
+        <button class="chrome-pill account-btn" id="accountBtn">登录 Google</button>
+      </div>
+    </header>
+
+    <!-- ==================== MAIN WORKSPACE BODY ==================== -->
+    <div class="app-body">
+      <!-- VIEW 1: AI AGENT WORKSPACE (Claude Desktop / Linear Minimal Aesthetic) -->
+      <div class="agent-workspace" id="agentWorkspace">
+        <div class="sidebar-scrim hidden" id="sidebarScrim"></div>
+
+        <aside class="agent-sidebar" id="agentSidebar">
+          <div class="sidebar-top">
+            <button class="btn-new-chat" id="newChatBtn">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 5v14M5 12h14"/></svg>
+              <span>新建对话</span>
+            </button>
+          </div>
+
+          <div class="sidebar-section-label">最近对话</div>
+          <div class="chat-list" id="chatSessionList"></div>
+
+          <div class="sidebar-footer">
+            <button class="sidebar-settings-toggle" id="agentToolsDrawerBtn" aria-expanded="false">
+              <span class="sst-left">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6Z"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9c.26.604.852.997 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1Z"/></svg>
+                <span>工具与工作区</span>
+              </span>
+              <svg class="chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M18 15l-6-6-6 6"/></svg>
+            </button>
+
+            <div class="agent-config-panel hidden" id="agentConfigPanel">
+              <div class="cfg-switches">
+                <label class="switch-row">
+                  <span>无限画布生图 / 视频</span>
+                  <input type="checkbox" class="toggle-input" id="chkToolCanvas" checked />
+                  <span class="toggle-track"></span>
+                </label>
+                <label class="switch-row">
+                  <span>实时联网搜索</span>
+                  <input type="checkbox" class="toggle-input" id="chkToolWeb" checked />
+                  <span class="toggle-track"></span>
+                </label>
+                <label class="switch-row">
+                  <span>本地文件与终端</span>
+                  <input type="checkbox" class="toggle-input" id="chkToolLocal" checked />
+                  <span class="toggle-track"></span>
+                </label>
+                <label class="switch-row">
+                  <span>执行命令前确认</span>
+                  <input type="checkbox" class="toggle-input" id="chkRequireApproval" checked />
+                  <span class="toggle-track"></span>
+                </label>
+              </div>
+              <div class="cfg-ws">
+                <label for="agentWorkspaceInput">本地工作区目录</label>
+                <input type="text" id="agentWorkspaceInput" placeholder="输入本地项目路径" />
+              </div>
+            </div>
+          </div>
+        </aside>
+
+        <main class="agent-main">
+          <div class="chat-scroll" id="chatScroll">
+            <div class="chat-welcome" id="agentWelcome">
+              <h1>有什么可以帮你？</h1>
+              <p class="welcome-sub">基于云端开源多模态大模型，支持看图识图、联网检索、本地代码协作与画布创作。</p>
+              <div class="starter-row">
+                <button class="starter-pill" data-prompt="帮我构思一个纯日系二次元动漫风格的「机械末日废土中一尘不染的长发少女」提示词，然后直接调用无限画布的 Animagine XL 4.0 为我生成一张 16:9 图片。">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="3" y="3" width="18" height="18" rx="3"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="M21 15l-5-5L5 21"/></svg>
+                  <span>构思提示词并画图</span>
+                </button>
+                <button class="starter-pill" data-prompt="请帮我联网搜索 Qwen3.8-27B 的最新特性和能力亮点，并整理成清晰的中文对比摘要。">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="12" cy="12" r="9"/><path d="M3.6 9h16.8M3.6 15h16.8M12 3a14 14 0 0 1 0 18M12 3a14 14 0 0 0 0 18"/></svg>
+                  <span>联网调研最新资料</span>
+                </button>
+                <button class="starter-pill" data-prompt="请列出当前本地工作区的文件，然后写一个 Python 脚本 hello_agent.py 打印系统信息并运行它。">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg>
+                  <span>编写并运行本地脚本</span>
+                </button>
+                <button class="starter-pill" id="starterAttachImgBtn">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/></svg>
+                  <span>上传图片或文档分析</span>
+                </button>
+              </div>
+            </div>
+
+            <div class="chat-messages" id="chatMessages"></div>
+          </div>
+
+          <!-- Unified Clean Chat Composer (Claude / ChatGPT Desktop Style) -->
+          <div class="chat-composer-wrap">
+            <div class="chat-attachments hidden" id="chatAttachments"></div>
+            <div class="chat-composer">
+              <input type="file" id="chatFileInput" accept="image/*,.txt,.md,.py,.js,.ts,.json,.csv,.html,.css,.yml,.yaml,.sh" multiple hidden />
+              <textarea id="chatInput" rows="1" placeholder="输入消息、拖入图片或文档…"></textarea>
+              <div class="composer-bar">
+                <div class="composer-bar-left">
+                  <button class="icon-btn sm" id="chatAttachBtn" title="添加图片或文档附件">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/></svg>
+                  </button>
+                  <select class="inline-select" id="agentModelSelect" title="选择云端开源大模型">
+                    <option value="qwen3.8-27b">Qwen3.8-27B · L4/A100</option>
+                    <option value="qwen3.8-27b-t4">Qwen3.8-27B Q2 · T4</option>
+                    <option value="qwen3.5-9b">Qwen3.5-9B · 极速</option>
+                    <option value="qwen2.5-vl-7b">Qwen2.5-VL-7B · 轻量</option>
+                  </select>
+                  <label class="chip-toggle" title="开启或关闭深度思考链">
+                    <input type="checkbox" id="chkThinking" checked />
+                    <span>深度思考</span>
+                  </label>
+                </div>
+                <button class="send-circle-btn" id="chatSendBtn" title="发送 (Enter)">
+                  <svg id="chatSendIcon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M12 19V5M5 12l7-7 7 7"/></svg>
+                  <span class="sr-only" id="chatSendText">发送</span>
+                </button>
+              </div>
+            </div>
+          </div>
+        </main>
+      </div>
+
+      <!-- VIEW 2: INFINITE CANVAS STUDIO -->
+      <div class="canvas-viewport hidden" id="canvasViewport">
+        <div class="canvas-grid" id="canvasGrid"></div>
+        <div class="canvas-world" id="canvasWorld">
+          <svg class="connector-layer" id="connectorLayer"></svg>
+          <div class="nodes-layer" id="nodesLayer"></div>
+        </div>
+
+        <!-- Empty Canvas State -->
+        <div class="canvas-welcome" id="canvasWelcome">
+          <h2>无限创作画布</h2>
+          <p>拖入参考图或直接在下方输入提示词生成图片与视频，画布节点可自由编排并自动同步至 Google Drive。</p>
+          <div class="starter-row">
+            <button class="sample-chip" data-mode="image" data-prompt="1girl, solo, spotless beautiful young girl, very long flowing black hair, windblown hair, wearing bright warm pastel yellow soft oversized knit sweater, crisp white pleated skirt, standing calmly in a vast post-apocalyptic mechanical wasteland, colossal rusted mecha ruins, dramatic golden hour sunset, anime movie scene, masterpiece">
+              动漫废土少女示例
+            </button>
+            <button class="sample-chip" data-mode="video" data-prompt="A golden retriever puppy running happily through a sunlit flower meadow, cinematic slow motion tracking shot, warm golden hour light">
+              文生视频示例
+            </button>
+            <button class="sample-chip" id="welcomeUploadBtn">
+              导入本地参考图
+            </button>
+          </div>
+        </div>
+
+        <!-- Drag & Drop Overlay -->
+        <div class="drop-overlay hidden" id="dropOverlay">
+          <div class="drop-box">
+            <div class="drop-title">松开鼠标导入参考图</div>
+            <div class="drop-sub">导入后可直接作为首帧生成视频</div>
+          </div>
+        </div>
+
+        <!-- Left Tool Rail -->
+        <aside class="tool-rail" id="canvasToolRail">
+          <button class="rail-btn active" id="toolSelectBtn" title="选择与拖拽 (V)">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M4 4l7 17 2.5-7.5L21 11 4 4z"/></svg>
+          </button>
+          <button class="rail-btn" id="toolPanBtn" title="平移画布 (按住 Space)">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M18 11V6a2 2 0 0 0-4 0v4M14 10V4a2 2 0 0 0-4 0v6M10 10.5V6a2 2 0 0 0-4 0v8l-1.5-1.5a2 2 0 0 0-2.8 2.8l5.3 5.3A4 4 0 0 0 9.8 22H15a5 5 0 0 0 5-5v-4a2 2 0 0 0-2-2z"/></svg>
+          </button>
+          <div class="rail-sep"></div>
+          <button class="rail-btn" id="importMaterialBtn" title="导入本地参考图">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><rect x="3" y="3" width="18" height="18" rx="3"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="M21 15l-5-5L5 21"/></svg>
+          </button>
+          <button class="rail-btn" id="tidyLayoutBtn" title="自动整理画布">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/></svg>
+          </button>
+          <button class="rail-btn" id="fitViewBtn" title="适应画布">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7"/></svg>
+          </button>
+          <div class="rail-sep"></div>
+          <button class="rail-btn" id="openFolderBtn" title="打开本地 outputs 文件夹">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M3 7a2 2 0 0 1 2-2h5l2 2h7a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7z"/></svg>
+          </button>
+        </aside>
+
+        <!-- Bottom-Left Zoom Controls -->
+        <div class="zoom-pill" id="canvasZoomPill">
+          <button class="zoom-btn" id="zoomOutBtn" title="缩小">−</button>
+          <button class="zoom-val tabular" id="zoomResetBtn" title="重置为 100%">100%</button>
+          <button class="zoom-btn" id="zoomInBtn" title="放大">+</button>
+        </div>
+
+        <!-- Bottom Canvas Composer Dock -->
+        <div class="composer-wrap" id="canvasComposerWrap">
+          <div class="adv-popover hidden" id="advPopover">
+            <div class="pop-head">
+              <span class="pop-title">高级生成参数</span>
+              <button class="icon-btn xs" id="closeAdvBtn">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M18 6L6 18M6 6l12 12"/></svg>
+              </button>
+            </div>
+            <div class="adv-grid">
+              <label class="adv-field">
+                <span>步数 (Steps)</span>
+                <input type="number" id="stepsInput" min="1" max="60" value="28" />
+              </label>
+              <label class="adv-field">
+                <span>引导 (Guidance)</span>
+                <input type="number" id="guidanceInput" step="0.5" min="0" max="15" value="3.5" />
+              </label>
+              <label class="adv-field">
+                <span>种子 (-1 随机)</span>
+                <input type="number" id="seedInput" value="-1" />
+              </label>
+            </div>
+            <label class="adv-field full">
+              <span>反向提示词 (Negative Prompt)</span>
+              <input type="text" id="negPromptInput" value="worst quality, blurry, jittery, distorted, watermark, deformed" />
+            </label>
+          </div>
+
+          <div class="composer-dock" id="composerDock">
+            <div class="composer-controls">
+              <div class="mode-switch">
+                <button class="mode-btn active" data-mode="video">视频</button>
+                <button class="mode-btn" data-mode="image">图片</button>
+              </div>
+              <select class="pill-select" id="modelSelect" title="选择生成模型"></select>
+              <select class="pill-select" id="ratioSelect" title="画面比例">
+                <option value="16:9" selected>16:9</option>
+                <option value="9:16">9:16</option>
+                <option value="1:1">1:1</option>
+                <option value="4:3">4:3</option>
+              </select>
+              <select class="pill-select" id="durationSelect" title="视频时长">
+                <option value="25">~1.5s</option>
+                <option value="49" selected>~3s</option>
+                <option value="81">~5s</option>
+              </select>
+              <button class="pill-btn" id="advBtn" title="高级参数">参数</button>
+            </div>
+
+            <div class="composer-main">
+              <input type="file" id="materialFileInput" accept="image/*" hidden />
+              <div class="ref-slot" id="refSlot" title="添加首帧参考图">
+                <div class="ref-empty" id="refEmpty">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M12 5v14M5 12h14"/></svg>
+                  <span class="ref-txt">参考图</span>
+                </div>
+                <div class="ref-filled hidden" id="refFilled">
+                  <img id="refThumb" alt="参考图" />
+                  <button class="ref-clear" id="refClearBtn" title="移除参考图">✕</button>
+                </div>
+              </div>
+              <textarea id="promptInput" rows="2" placeholder="描述画面主体、光线、材质与运镜…（⌘+Enter 生成）"></textarea>
+              <button class="btn-primary generate-cta" id="generateBtn">
+                <span id="generateBtnText">生成视频</span>
+              </button>
             </div>
           </div>
         </div>
       </div>
-
-      <div class="modal-foot-note">
-        🔒 授权凭证由 Google 官方 <code>google-colab-cli</code> 加密存储在你的 macOS 钥匙串（Keychain）中，下次打开自动保持登录。
-      </div>
     </div>
   </div>
 
-  <!-- CINEMA LIGHTBOX PREVIEW MODAL -->
+  <!-- GOOGLE OAUTH2 MODAL -->
+  <div class="modal-backdrop hidden" id="authModal">
+    <div class="modal-card">
+      <div class="pop-head">
+        <div>
+          <h3>绑定 Google 账号</h3>
+          <p class="modal-sub">通过 Google 官方 OAuth 授权调用 Colab GPU 与 Google Drive，仅需登录一次。</p>
+        </div>
+        <button class="icon-btn xs" id="closeAuthModalBtn">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M18 6L6 18M6 6l12 12"/></svg>
+        </button>
+      </div>
+
+      <div class="oauth-steps">
+        <div class="oauth-step">
+          <div class="step-tag">第一步</div>
+          <p>在系统默认浏览器打开 Google 官方授权页并允许访问。</p>
+          <button class="btn-primary" id="startOauthBtn">打开 Google 授权页</button>
+        </div>
+        <div class="oauth-step">
+          <div class="step-tag">第二步</div>
+          <p>将 Google 显示的授权码粘贴至下方完成绑定：</p>
+          <div class="code-row">
+            <input type="text" id="oauthCodeInput" placeholder="粘贴授权码 (4/0A...)" />
+            <button class="btn-primary" id="completeOauthBtn">完成绑定</button>
+          </div>
+        </div>
+      </div>
+      <div class="modal-foot-note">凭证由官方 <code>google-colab-cli</code> 加密存于系统钥匙串。</div>
+    </div>
+  </div>
+
+  <!-- LIGHTBOX PREVIEW MODAL -->
   <div class="modal-backdrop hidden" id="lightboxModal">
     <div class="lightbox-card">
       <div class="lightbox-media" id="lightboxMedia"></div>
       <div class="lightbox-sidebar">
-        <div class="lightbox-top">
+        <div class="pop-head">
           <span class="lb-badge" id="lbKindBadge">VIDEO</span>
-          <button class="icon-close" id="closeLightboxBtn">✕</button>
+          <button class="icon-btn xs" id="closeLightboxBtn">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M18 6L6 18M6 6l12 12"/></svg>
+          </button>
         </div>
         <div class="lb-prompt" id="lbPrompt"></div>
         <div class="lb-meta" id="lbMeta"></div>
         <div class="lb-actions">
-          <button class="btn-accent full-w hidden" id="lbToVideoBtn">🎬 以此图生成视频</button>
-          <button class="btn-ghost-box full-w" id="lbReusePromptBtn">🔁 复用提示词</button>
-          <a class="btn-ghost-box full-w hidden" id="lbDriveLink" target="_blank">☁️ 在 Google Drive 查看</a>
-          <a class="btn-ghost-box full-w" id="lbDownloadLink" download>⬇️ 下载到本地</a>
+          <button class="btn-primary full-w hidden" id="lbToVideoBtn">以此图生成视频</button>
+          <button class="btn-outline full-w" id="lbReusePromptBtn">复用提示词</button>
+          <a class="btn-outline full-w hidden" id="lbDriveLink" target="_blank">在 Google Drive 查看</a>
+          <a class="btn-outline full-w" id="lbDownloadLink" download>下载到本地</a>
         </div>
       </div>
     </div>

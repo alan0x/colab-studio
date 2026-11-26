@@ -309,14 +309,14 @@
       el.style.top = `${item.y || 120}px`;
 
       const isVideo = item.kind === "video" || item.filename.endsWith(".mp4");
-      const kindLabel = item.kind === "material" ? "本地素材" : isVideo ? "VIDEO" : "IMAGE";
+      const kindLabel = item.kind === "material" ? "素材" : isVideo ? "VIDEO" : "IMAGE";
       const tagClass = item.kind === "material" ? "material" : isVideo ? "video" : "image";
       const subMeta = item.elapsed_seconds ? `${item.model_id} · ${item.elapsed_seconds}s` : item.model_id || "";
       const cloudBadge =
         item.drive_sync === "synced"
-          ? `<span class="cloud-badge" title="已同步至 Google Drive">☁️ Drive</span>`
+          ? `<span class="cloud-badge" title="已同步至 Google Drive">已同步</span>`
           : item.drive_sync === "syncing"
-          ? `<span class="cloud-badge syncing" title="正在上传到 Google Drive">⏳ 同步中</span>`
+          ? `<span class="cloud-badge syncing" title="正在上传到 Google Drive">同步中</span>`
           : "";
 
       const mediaHtml = isVideo
@@ -325,12 +325,12 @@
 
       el.innerHTML = `
         <div class="node-toolbar">
-          ${!isVideo ? `<button class="nt-btn accent to-video-btn">🎬 以此图生视频</button>` : ""}
-          <button class="nt-btn preview-btn">🔍 预览</button>
-          <button class="nt-btn reuse-btn">🔁 提示词</button>
-          ${item.drive_web_link ? `<a class="nt-btn" href="${item.drive_web_link}" target="_blank" title="在 Google Drive 中查看">☁️</a>` : ""}
-          <a class="nt-btn" href="${item.local_url}" download="${item.filename}" title="下载到本地">⬇️</a>
-          <button class="nt-btn danger del-btn">🗑️</button>
+          ${!isVideo ? `<button class="nt-btn accent to-video-btn">生成视频</button>` : ""}
+          <button class="nt-btn preview-btn">预览</button>
+          <button class="nt-btn reuse-btn">复用词</button>
+          ${item.drive_web_link ? `<a class="nt-btn" href="${item.drive_web_link}" target="_blank" title="在 Google Drive 中查看">Drive</a>` : ""}
+          <a class="nt-btn" href="${item.local_url}" download="${item.filename}" title="下载到本地">下载</a>
+          <button class="nt-btn danger del-btn">删除</button>
         </div>
         <div class="node-drag-header">
           <div><span class="node-tag ${tagClass}">${kindLabel}</span>${cloudBadge}</div>
@@ -564,63 +564,69 @@
     // 1. Account button
     const accBtn = $("accountBtn");
     if (snap.authenticated) {
-      accBtn.textContent = snap.user_email ? snap.user_email.split("@")[0] : "已登录 Google";
-      accBtn.className = "hud-btn hud-btn-account";
-      accBtn.title = `已绑定 ${snap.user_email || "Google 账号"}（点击可重新授权）`;
+      accBtn.textContent = snap.user_email ? snap.user_email.split("@")[0] : "已登录";
+      accBtn.className = "chrome-pill account-btn logged-in";
+      accBtn.title = `已绑定 ${snap.user_email || "Google 账号"}（点击重新授权）`;
     } else {
-      accBtn.textContent = "登录 Google 账号";
-      accBtn.className = "hud-btn hud-btn-primary";
+      accBtn.textContent = "登录 Google";
+      accBtn.className = "chrome-pill account-btn cta";
     }
 
-    // 2. GPU Status & Toggle Button
+    // 2. GPU Status & Compact Pill + Popover
     const sess = snap.session || {};
     const llm = snap.llm || {};
     const toggleBtn = $("toggleGpuBtn");
     if (sess.active) {
       $("gpuDot").className = "status-dot online";
-      const gpuLabel = sess.gpu_name_detail || `NVIDIA ${sess.accelerator || "GPU"}`;
-      const brainTag = llm.ready && llm.model_id ? ` · 🧠 ${llm.model_id}` : "";
+      const shortName = sess.accelerator || "GPU";
+      $("gpuShortLabel").textContent = llm.ready && llm.model_id ? `${shortName} · ${llm.model_id}` : shortName;
+      const gpuLabel = sess.gpu_name_detail || `NVIDIA ${shortName}`;
+      const brainTag = llm.ready && llm.model_id ? ` · ${llm.model_id}` : "";
       const vramTxt = !brainTag && sess.vram_total_gb
         ? ` · ${sess.vram_used_gb ?? 0}/${sess.vram_total_gb}GB`
         : !brainTag && sess.vram_label ? ` · ${sess.vram_label}` : "";
       $("gpuStatusText").textContent = `${gpuLabel}${brainTag}${vramTxt}`;
-      toggleBtn.textContent = "释放显卡";
-      toggleBtn.className = "hud-btn hud-btn-danger";
+      toggleBtn.textContent = "释放显卡（停止计费）";
+      toggleBtn.className = "btn-danger-outline full-w";
       toggleBtn.disabled = Boolean(snap.active_job_id);
     } else {
       $("gpuDot").className = "status-dot offline";
-      $("gpuStatusText").textContent = snap.authenticated ? "待机 · 生成自动开机" : "未登录";
+      $("gpuShortLabel").textContent = snap.authenticated ? `${snap.preferred_gpu || "L4"} 待机` : "未登录";
+      $("gpuStatusText").textContent = snap.authenticated ? "待机 · 发送任务自动开机" : "请先登录 Google";
       toggleBtn.textContent = "立即开机";
-      toggleBtn.className = "hud-btn hud-btn-ghost";
+      toggleBtn.className = "btn-outline full-w";
       toggleBtn.disabled = !snap.authenticated;
     }
 
     // 3. Real Compute Units Balance & Remaining Hours
     const u = snap.usage || {};
     if (!snap.authenticated) {
-      $("quotaText").textContent = "登录后显示实时余额与时长";
+      $("quotaShortLabel").textContent = "-- CU";
+      $("quotaText").textContent = "登录后显示实时余额与可用时长";
     } else if (u.balance_cu != null) {
       const pref = $("preferredGpuSelect").value || "L4";
+      $("quotaShortLabel").textContent = `${u.balance_cu.toFixed(1)} CU`;
       let hoursTxt = "";
       if (u.remaining_hours_live != null) {
-        hoursTxt = `当前费率剩余约 ${u.remaining_hours_live} 小时`;
+        hoursTxt = `当前费率约 ${u.remaining_hours_live}h`;
       } else if (u.est_hours_by_gpu && u.est_hours_by_gpu[pref] != null) {
-        hoursTxt = `按 ${pref} 约可用 ${u.est_hours_by_gpu[pref]} 小时`;
+        hoursTxt = `按 ${pref} 约 ${u.est_hours_by_gpu[pref]}h`;
       }
-      $("quotaText").textContent = `⚡ ${u.balance_cu.toFixed(1)} 单元${hoursTxt ? ` · ${hoursTxt}` : ""}`;
+      $("quotaText").textContent = `${u.balance_cu.toFixed(1)} CU${hoursTxt ? ` · ${hoursTxt}` : ""}`;
     } else {
-      $("quotaText").textContent = "已连接 · 等待同步余额";
+      $("quotaShortLabel").textContent = "同步中";
+      $("quotaText").textContent = "等待同步余额";
     }
 
     // 4. Idle Auto-Stop Countdown
-    const autoPill = $("autoStopPill");
+    const autoRow = $("autoStopRow");
     if (sess.active && !snap.active_job_id && snap.auto_stop_remaining_seconds != null) {
       const m = Math.floor(snap.auto_stop_remaining_seconds / 60);
       const s = snap.auto_stop_remaining_seconds % 60;
       $("autoStopText").textContent = `${m}m${s < 10 ? "0" : ""}${s}s 后自动释放`;
-      autoPill.classList.remove("hidden");
+      autoRow.classList.remove("hidden");
     } else {
-      autoPill.classList.add("hidden");
+      autoRow.classList.add("hidden");
     }
 
     // 5. Google Drive Sync Status
@@ -628,24 +634,24 @@
     $("driveAutoSyncCheck").checked = drv.enabled !== false;
     const drvBtn = $("driveBtn");
     if (drv.syncing) {
-      $("driveBtnText").textContent = "Drive 同步中…";
+      $("driveBtnText").textContent = "同步中…";
       drvBtn.classList.remove("synced");
     } else if (snap.authenticated && drv.enabled) {
-      $("driveBtnText").textContent = `Drive (${drv.synced_count || 0}/${drv.total_count || 0})`;
+      $("driveBtnText").textContent = `Drive ${drv.synced_count || 0}/${drv.total_count || 0}`;
       drvBtn.classList.toggle("synced", Boolean(drv.connected || drv.synced_count > 0));
     } else {
-      $("driveBtnText").textContent = "Drive 云盘";
+      $("driveBtnText").textContent = "Drive";
       drvBtn.classList.remove("synced");
     }
 
     if (!snap.authenticated) {
-      $("driveStatText").textContent = "请先登录 Google 账号以启用 Google Drive 同步";
+      $("driveStatText").textContent = "请先登录 Google 账号以启用 Drive 同步";
       $("driveSyncNowBtn").disabled = true;
     } else {
       $("driveSyncNowBtn").disabled = Boolean(drv.syncing);
       $("driveStatText").textContent = drv.last_error
         ? `同步提示：${drv.last_error}`
-        : `已云端备份 ${drv.synced_count || 0} / ${drv.total_count || 0} 个素材与作品`;
+        : `已云端备份 ${drv.synced_count || 0} / ${drv.total_count || 0} 个文件`;
     }
 
     const folderLink = $("driveOpenFolderLink");
@@ -697,9 +703,31 @@
     }
   });
 
-  // ==================== GOOGLE DRIVE SYNC CONTROLS ====================
-  $("driveBtn").addEventListener("click", () => $("drivePopover").classList.toggle("hidden"));
+  // ==================== TOPBAR POPOVERS (HARDWARE & DRIVE) ====================
+  function closeTopPopovers() {
+    $("hwPopover").classList.add("hidden");
+    $("drivePopover").classList.add("hidden");
+  }
+
+  $("hwPopoverBtn").addEventListener("click", (e) => {
+    e.stopPropagation();
+    const wasHidden = $("hwPopover").classList.contains("hidden");
+    closeTopPopovers();
+    if (wasHidden) $("hwPopover").classList.remove("hidden");
+  });
+  $("closeHwBtn").addEventListener("click", () => $("hwPopover").classList.add("hidden"));
+
+  $("driveBtn").addEventListener("click", (e) => {
+    e.stopPropagation();
+    const wasHidden = $("drivePopover").classList.contains("hidden");
+    closeTopPopovers();
+    if (wasHidden) $("drivePopover").classList.remove("hidden");
+  });
   $("closeDriveBtn").addEventListener("click", () => $("drivePopover").classList.add("hidden"));
+
+  document.addEventListener("click", (e) => {
+    if (!e.target.closest(".popover-anchor")) closeTopPopovers();
+  });
 
   $("driveAutoSyncCheck").addEventListener("change", async () => {
     const enabled = $("driveAutoSyncCheck").checked;

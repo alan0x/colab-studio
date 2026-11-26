@@ -90,16 +90,42 @@
     });
   }
 
-  // ==================== WORKSPACE VIEW SWITCHER (AGENT <-> INFINITE CANVAS) ====================
+  // ==================== WORKSPACE VIEW SWITCHER & RESPONSIVE SIDEBAR ====================
+  function isNarrowScreen() {
+    return window.innerWidth <= 920;
+  }
+
+  function closeMobileSidebar() {
+    $("agentSidebar").classList.remove("mobile-open");
+    $("sidebarScrim").classList.add("hidden");
+  }
+
+  $("sidebarToggleBtn").addEventListener("click", () => {
+    if (isNarrowScreen()) {
+      const opening = !$("agentSidebar").classList.contains("mobile-open");
+      $("agentSidebar").classList.toggle("mobile-open", opening);
+      $("sidebarScrim").classList.toggle("hidden", !opening);
+    } else {
+      $("agentSidebar").classList.toggle("collapsed");
+    }
+  });
+  $("sidebarScrim").addEventListener("click", closeMobileSidebar);
+
+  $("agentToolsDrawerBtn").addEventListener("click", () => {
+    const panel = $("agentConfigPanel");
+    const open = panel.classList.contains("hidden");
+    panel.classList.toggle("hidden", !open);
+    $("agentToolsDrawerBtn").setAttribute("aria-expanded", String(open));
+  });
+
   function switchWorkspaceView(view) {
     const isAgent = view === "agent";
     $("switchAgentBtn").classList.toggle("active", isAgent);
     $("switchCanvasBtn").classList.toggle("active", !isAgent);
     $("agentWorkspace").classList.toggle("hidden", !isAgent);
     $("canvasViewport").classList.toggle("hidden", isAgent);
-    $("canvasToolRail").classList.toggle("hidden", isAgent);
-    $("canvasZoomPill").classList.toggle("hidden", isAgent);
-    $("canvasComposerWrap").classList.toggle("hidden", isAgent);
+    $("sidebarToggleBtn").classList.toggle("hidden", !isAgent);
+    closeMobileSidebar();
 
     if (!isAgent && window.StudioBridge?.refreshCanvas) {
       window.StudioBridge.refreshCanvas();
@@ -192,17 +218,17 @@
 
   function toolLabel(name) {
     const map = {
-      generate_image: "🎨 调用无限画布生图",
-      generate_video: "🎬 调用无限画布生视频",
-      list_canvas_items: "🗂️ 读取无限画布作品",
-      web_search: "🔍 实时联网搜索",
-      fetch_webpage: "🌐 抓取网页正文",
-      list_files: "📁 列出本地目录",
-      read_file: "📄 读取本地文件",
-      write_file: "✏️ 写入本地文件",
-      run_command: "💻 执行本地终端命令",
+      generate_image: "调用画布生图",
+      generate_video: "调用画布生视频",
+      list_canvas_items: "读取画布作品列表",
+      web_search: "联网搜索",
+      fetch_webpage: "抓取网页正文",
+      list_files: "列出工作区目录",
+      read_file: "读取本地文件",
+      write_file: "写入本地文件",
+      run_command: "执行本地命令",
     };
-    return map[name] || `🔧 调用工具: ${name}`;
+    return map[name] || `调用工具: ${name}`;
   }
 
   function buildToolCardHtml(tc) {
@@ -356,22 +382,35 @@
   });
 
   // Starter cards
-  document.querySelectorAll(".starter-card[data-prompt]").forEach((btn) => {
+  document.querySelectorAll(".starter-pill[data-prompt]").forEach((btn) => {
     btn.addEventListener("click", () => {
       $("chatInput").value = btn.dataset.prompt;
+      autoResizeChatInput();
       $("chatInput").focus();
     });
   });
 
+  function autoResizeChatInput() {
+    const el = $("chatInput");
+    el.style.height = "auto";
+    el.style.height = Math.min(180, el.scrollHeight) + "px";
+  }
+  $("chatInput").addEventListener("input", autoResizeChatInput);
+
   // ==================== STREAMING CHAT EXECUTION ====================
   function setSendingState(active) {
     const btn = $("chatSendBtn");
+    const icon = $("chatSendIcon");
     if (active) {
       btn.classList.add("stop-mode");
-      $("chatSendText").textContent = "⏹ 停止";
+      btn.title = "停止生成";
+      $("chatSendText").textContent = "停止";
+      if (icon) icon.innerHTML = '<rect x="6" y="6" width="12" height="12" rx="2" fill="currentColor" stroke="none"/>';
     } else {
       btn.classList.remove("stop-mode");
+      btn.title = "发送 (Enter)";
       $("chatSendText").textContent = "发送";
+      if (icon) icon.innerHTML = '<path d="M12 19V5M5 12l7-7 7 7"/>';
     }
   }
 
@@ -417,6 +456,7 @@
       agentState.messages.push(res.user_message);
       agentState.attachments = [];
       $("chatInput").value = "";
+      autoResizeChatInput();
       renderAttachments();
       renderMessages();
       loadSessions();
