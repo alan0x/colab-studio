@@ -25,15 +25,16 @@ from typing import Any, Callable, Optional
 SESSION_NAME = "studio"
 
 
-def _resolve_remote_worker() -> Path:
+def _resolve_worker_file(filename: str) -> Path:
     if getattr(sys, "frozen", False) and hasattr(sys, "_MEIPASS"):
-        cand = Path(sys._MEIPASS) / "local_app" / "remote_worker.py"
+        cand = Path(sys._MEIPASS) / "local_app" / filename
         if cand.exists():
             return cand
-    return Path(__file__).resolve().parent / "remote_worker.py"
+    return Path(__file__).resolve().parent / filename
 
 
-REMOTE_WORKER_PATH = _resolve_remote_worker()
+REMOTE_WORKER_PATH = _resolve_worker_file("remote_worker.py")
+REMOTE_LLM_SERVER_PATH = _resolve_worker_file("remote_llm_server.py")
 _SUBPROC_FLAGS = subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0
 
 GPU_EST_RATES = {
@@ -154,6 +155,13 @@ class ColabManager:
         self.last_refresh_at: float = 0.0
         self.last_error: Optional[str] = None
         self._bootstrapped_endpoint: Optional[str] = None
+        self.llm: dict[str, Any] = {
+            "ready": False,
+            "url": None,
+            "api_key": None,
+            "model_id": None,
+            "endpoint": None,
+        }
 
         # Start idle auto-shutdown guard
         threading.Thread(target=self._idle_guard_loop, daemon=True).start()
@@ -349,6 +357,7 @@ class ColabManager:
                 }
             )
             self._bootstrapped_endpoint = None
+            self.llm = {"ready": False, "url": None, "api_key": None, "model_id": None, "endpoint": None}
 
         self.last_refresh_at = time.time()
         self.last_error = None
@@ -424,6 +433,10 @@ class ColabManager:
             "auto_stop_minutes": auto_stop_min,
             "auto_stop_remaining_seconds": auto_stop_remaining,
             "preferred_gpu": settings.get("preferred_gpu", "L4"),
+            "llm": {
+                "ready": bool(self.llm.get("ready") and self.session.get("active")),
+                "model_id": self.llm.get("model_id"),
+            },
             "last_error": self.last_error,
         }
 
@@ -470,6 +483,7 @@ class ColabManager:
             if rc == 0:
                 self.last_activity_at = time.time()
                 self._bootstrapped_endpoint = None
+                self.llm = {"ready": False, "url": None, "api_key": None, "model_id": None, "endpoint": None}
                 self.refresh_state(force=True)
                 self.session["booted_at"] = time.time()
                 return self.session
@@ -502,12 +516,151 @@ class ColabManager:
         with self._gpu_lock:
             self._run(["stop", "-s", SESSION_NAME], timeout=30.0)
             self._bootstrapped_endpoint = None
+            self.llm = {"ready": False, "url": None, "api_key": None, "model_id": None, "endpoint": None}
             self.session["active"] = False
             self.session["status"] = "OFFLINE"
             self.session["booted_at"] = None
             time.sleep(1.0)
             self.refresh_state(force=True)
             return self.get_snapshot()
+
+    # --------------------------------------------------------
+    # Multimodal LLM Server Lifecycle & VRAM Auto-Swap
+    # --------------------------------------------------------
+    def touch_activity(self) -> None:
+        self.last_activity_at = time.time()
+
+    def pause_llm_for_media(self, on_update: Optional[Callable[[dict[str, Any]], None]] = None) -> None:
+        """Temporarily stop llama-server so image/video generation gets 100% of GPU VRAM."""
+        if not self.llm.get("ready") or not self.session.get("active"):
+            return
+        if on_update:
+            on_update({"status": "swapping", "stage": "正在自动腾出大模型显存以运行画布渲染...", "progress": 16})
+        colab_cmd = find_colab_cmd()
+        if not colab_cmd:
+            return
+        payload_b64 = base64.b64encode(json.dumps({"action": "stop"}).encode("utf-8")).decode("ascii")
+        self._run(
+            ["exec", "-s", SESSION_NAME, "--timeout", "30", "--env", f"STUDIO_LLM_B64={payload_b64}", "-f", str(REMOTE_LLM_SERVER_PATH)],
+            timeout=45.0,
+        )
+        self.llm["ready"] = False
+
+    def ensure_llm_server(
+        self,
+        model_id: str = "qwen3.8-27b",
+        preferred_gpu: Optional[str] = None,
+        on_progress: Optional[Callable[[str, int], None]] = None,
+    ) -> dict[str, Any]:
+        """Boot (or reuse) llama-server on the Colab GPU and return `{url, api_key, model_id}`."""
+        with self._gpu_lock:
+            self.last_activity_at = time.time()
+            if (
+                self.session.get("active")
+                and self.llm.get("ready")
+                and self.llm.get("model_id") == model_id
+                and self.llm.get("url")
+                and self.llm.get("endpoint") == self.session.get("endpoint")
+            ):
+                return dict(self.llm)
+
+            settings = self.get_settings()
+            gpu = preferred_gpu or settings.get("preferred_gpu", "L4")
+            self.ensure_session(
+                preferred_gpu=gpu,
+                progress_cb=lambda msg, pct: on_progress(msg, pct) if on_progress else None,
+            )
+
+            if on_progress:
+                on_progress(f"正在准备云端多模态模型引擎 ({model_id})...", 12)
+
+            colab_cmd = find_colab_cmd()
+            assert colab_cmd is not None
+            payload_b64 = base64.b64encode(
+                json.dumps({"action": "start", "model_id": model_id}).encode("utf-8")
+            ).decode("ascii")
+
+            cmd = [
+                *colab_cmd,
+                "--auth=oauth2",
+                "exec",
+                "-s",
+                SESSION_NAME,
+                "--timeout",
+                "0",
+                "--env",
+                f"STUDIO_LLM_B64={payload_b64}",
+                "-f",
+                str(REMOTE_LLM_SERVER_PATH),
+            ]
+            proc = subprocess.Popen(
+                cmd,
+                stdin=subprocess.DEVNULL,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+                bufsize=1,
+                env=_clean_env(),
+                creationflags=_SUBPROC_FLAGS,
+            )
+
+            ready_info: Optional[dict[str, Any]] = None
+            err_msg: Optional[str] = None
+            recent: list[str] = []
+
+            assert proc.stdout is not None
+            for raw in proc.stdout:
+                line = _strip_ansi(raw).strip()
+                if not line:
+                    continue
+                if line.startswith("@@LLM_PROGRESS "):
+                    try:
+                        info = json.loads(line[len("@@LLM_PROGRESS "):])
+                        if info.get("gpu_name"):
+                            self.session["gpu_name_detail"] = info["gpu_name"]
+                        if info.get("vram_total_gb"):
+                            self.session["vram_total_gb"] = info["vram_total_gb"]
+                        if on_progress:
+                            on_progress(info.get("stage", "加载中..."), int(info.get("progress", 50)))
+                    except Exception:
+                        pass
+                elif line.startswith("@@LLM_READY "):
+                    try:
+                        ready_info = json.loads(line[len("@@LLM_READY "):])
+                    except Exception:
+                        pass
+                elif line.startswith("@@LLM_ERROR "):
+                    try:
+                        err_msg = json.loads(line[len("@@LLM_ERROR "):]).get("error")
+                    except Exception:
+                        pass
+                else:
+                    recent.append(line)
+                    if len(recent) > 20:
+                        recent.pop(0)
+
+            stderr_text = _strip_ansi(proc.stderr.read() if proc.stderr else "").strip()
+            rc = proc.wait()
+
+            if rc != 0 or not ready_info or not ready_info.get("url"):
+                detail = err_msg or stderr_text[-400:] or "\n".join(recent[-8:]) or f"LLM 启动失败 (exit {rc})"
+                raise RuntimeError(detail)
+
+            self.llm = {
+                "ready": True,
+                "url": ready_info["url"],
+                "api_key": ready_info["api_key"],
+                "model_id": ready_info.get("model_id", model_id),
+                "endpoint": self.session.get("endpoint"),
+            }
+            if ready_info.get("gpu_name"):
+                self.session["gpu_name_detail"] = ready_info["gpu_name"]
+            if ready_info.get("vram_total_gb"):
+                self.session["vram_total_gb"] = ready_info["vram_total_gb"]
+            self.last_activity_at = time.time()
+            return dict(self.llm)
 
     # --------------------------------------------------------
     # Direct Remote Bootstrap & Inference Execution
@@ -599,6 +752,9 @@ class ColabManager:
                 )
                 if self._cancel_requested:
                     raise RuntimeError("任务已取消")
+
+                # 1.5 Smart VRAM Auto-Swap: pause LLM server if active so media model gets full VRAM
+                self.pause_llm_for_media(on_update=on_update)
 
                 # 2. Ensure diffusers & codecs are installed once per VM
                 self._ensure_bootstrapped(
@@ -709,6 +865,7 @@ class ColabManager:
                     if "not found" in err_detail.lower() or "404" in err_detail:
                         self.session["active"] = False
                         self._bootstrapped_endpoint = None
+                        self.llm = {"ready": False, "url": None, "api_key": None, "model_id": None, "endpoint": None}
                     raise RuntimeError(err_detail)
 
                 # 5. Download finished artifact directly back to Mac local storage
