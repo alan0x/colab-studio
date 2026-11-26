@@ -76,18 +76,27 @@ jobs:
             windows/studio_win.py
 
       - name: Smoke test built Windows .exe (CLI + OAuth + Local Server)
+        timeout-minutes: 3
         shell: pwsh
         run: |
           $exe = "dist\Colab Canvas Studio\Colab Canvas Studio.exe"
           if (-not (Test-Path $exe)) { throw "Built exe not found: $exe" }
 
           Write-Host "1) Testing bundled colab CLI --help..."
-          $p1 = Start-Process -FilePath $exe -ArgumentList "--colab-cli", "--help" -NoNewWindow -Wait -PassThru
-          if ($p1.ExitCode -ne 0) { throw "colab-cli --help exited with $($p1.ExitCode)" }
+          $p1 = Start-Process -FilePath $exe -ArgumentList "--colab-cli", "--help" -NoNewWindow -Wait -PassThru -RedirectStandardOutput "cli_out.txt" -RedirectStandardError "cli_err.txt"
+          Get-Content "cli_out.txt" | Select-Object -First 15
+          if ($p1.ExitCode -ne 0) {
+            Get-Content "cli_err.txt"
+            throw "colab-cli --help exited with $($p1.ExitCode)"
+          }
 
           Write-Host "2) Testing full headless server + OAuth start..."
-          $p2 = Start-Process -FilePath $exe -ArgumentList "--headless-test" -NoNewWindow -Wait -PassThru
-          if ($p2.ExitCode -ne 0) { throw "headless smoke test exited with $($p2.ExitCode)" }
+          $p2 = Start-Process -FilePath $exe -ArgumentList "--headless-test" -NoNewWindow -Wait -PassThru -RedirectStandardOutput "smoke_out.txt" -RedirectStandardError "smoke_err.txt"
+          Get-Content "smoke_out.txt"
+          if ($p2.ExitCode -ne 0) {
+            Get-Content "smoke_err.txt"
+            throw "headless smoke test exited with $($p2.ExitCode)"
+          }
           Write-Host "Windows smoke tests passed!"
 
       - name: Build Windows Setup Installer (.exe) via Inno Setup

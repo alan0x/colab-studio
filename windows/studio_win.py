@@ -82,17 +82,23 @@ def _start_local_server():
 
 
 def _run_headless_smoke_test() -> int:
-    httpd, port = _start_local_server()
-    base = f"http://127.0.0.1:{port}"
+    studio_server = _import_server_module()
+    port = int(os.environ.get("STUDIO_PORT", "0")) or studio_server.pick_port(8765)
+    httpd = studio_server.ThreadingHTTPServer(("127.0.0.1", port), studio_server.StudioHandler)
+    actual_port = httpd.server_address[1]
+    threading.Thread(target=httpd.serve_forever, daemon=True).start()
+    base = f"http://127.0.0.1:{actual_port}"
     try:
-        # 1. HTML + static assets
-        with urllib.request.urlopen(f"{base}/", timeout=5) as resp:
-            assert resp.status == 200 and b"Colab Canvas Studio" in resp.read()
-        with urllib.request.urlopen(f"{base}/app.js", timeout=5) as resp:
-            assert resp.status == 200
+        # 1. HTML + static assets (Connection: close avoids HTTP/1.1 keep-alive hang)
+        for path, must_contain in (("/", b"Colab Canvas Studio"), ("/app.js", b"boot")):
+            req = urllib.request.Request(f"{base}{path}", headers={"Connection": "close"})
+            with urllib.request.urlopen(req, timeout=5) as resp:
+                body = resp.read()
+                assert resp.status == 200 and must_contain in body
 
         # 2. Status check confirms bundled colab CLI is detected
-        with urllib.request.urlopen(f"{base}/api/status?force=1", timeout=20) as resp:
+        req = urllib.request.Request(f"{base}/api/status?force=1", headers={"Connection": "close"})
+        with urllib.request.urlopen(req, timeout=20) as resp:
             snap = json.loads(resp.read().decode("utf-8"))
             assert resp.status == 200 and snap.get("cli_installed") is True, f"Status failed: {snap}"
 
@@ -100,7 +106,7 @@ def _run_headless_smoke_test() -> int:
         req = urllib.request.Request(
             f"{base}/api/auth/start",
             data=b"{}",
-            headers={"Content-Type": "application/json"},
+            headers={"Content-Type": "application/json", "Connection": "close"},
             method="POST",
         )
         with urllib.request.urlopen(req, timeout=20) as resp:
@@ -110,11 +116,17 @@ def _run_headless_smoke_test() -> int:
                 or str(auth_res.get("auth_url", "")).startswith("https://accounts.google.com/")
             ), f"OAuth start failed: {auth_res}"
 
-        print("WINDOWS_HEADLESS_SMOKE_TEST_PASSED")
+        print("WINDOWS_HEADLESS_SMOKE_TEST_PASSED", flush=True)
         return 0
     finally:
-        httpd.shutdown()
-        httpd.server_close()
+        try:
+            studio_server.COLAB._cleanup_oauth_proc()
+        except Exception:
+            pass
+        try:
+            httpd.server_close()
+        except Exception:
+            pass
 
 
 def _fallback_browser_app(url: str, httpd) -> None:
@@ -151,7 +163,8 @@ def main() -> None:
     _configure_runtime_env()
 
     if "--headless-test" in sys.argv:
-        sys.exit(_run_headless_smoke_test())
+        code = _run_headless_smoke_test()
+        os._exit(code)
 
     httpd, port = _start_local_server()
     url = f"http://127.0.0.1:{port}/"
