@@ -2,7 +2,8 @@
 """
 Colab Media Studio — Infinite Canvas Local Mac App Server
 Directly drives your Google Colab GPU via official `google-colab-cli` with ZERO
-need to open Google Colab in a browser.
+need to open Google Colab in a browser, and automatically syncs materials,
+generated images/videos, and canvas state to your Google Drive.
 """
 
 from __future__ import annotations
@@ -32,6 +33,7 @@ if str(THIS_DIR) not in sys.path:
     sys.path.insert(0, str(THIS_DIR))
 
 from colab_manager import ColabManager  # noqa: E402
+from drive_manager import DriveManager  # noqa: E402
 
 ROOT_DIR = THIS_DIR.parent
 STATIC_DIR = THIS_DIR / "static"
@@ -49,6 +51,7 @@ def load_settings() -> dict[str, Any]:
     default = {
         "preferred_gpu": "L4",
         "auto_stop_minutes": 10,
+        "drive_sync_enabled": True,
     }
     if CONFIG_PATH.exists():
         try:
@@ -62,7 +65,7 @@ def load_settings() -> dict[str, Any]:
 
 def save_settings(patch: dict[str, Any]) -> dict[str, Any]:
     cur = load_settings()
-    for key in ("preferred_gpu", "auto_stop_minutes"):
+    for key in ("preferred_gpu", "auto_stop_minutes", "drive_sync_enabled"):
         if key in patch:
             cur[key] = patch[key]
     CONFIG_PATH.write_text(json.dumps(cur, indent=2, ensure_ascii=False), encoding="utf-8")
@@ -91,7 +94,6 @@ def next_canvas_position(items: list[dict[str, Any]], parent_id: str | None = No
             if it.get("id") == parent_id:
                 px = int(it.get("x", 120))
                 py = int(it.get("y", 120))
-                # Offset neatly to the right of parent node so SVG connector looks clean
                 siblings = sum(1 for x in items if x.get("parent_id") == parent_id)
                 return px + 440, py + siblings * 320
     idx = len(items)
@@ -101,6 +103,38 @@ def next_canvas_position(items: list[dict[str, Any]], parent_id: str | None = No
 
 
 COLAB = ColabManager(get_settings=load_settings)
+DRIVE = DriveManager(outputs_dir=OUTPUTS_DIR, get_settings=load_settings)
+
+
+def _upload_item_to_drive_bg(item_id: str, filename: str, folder_kind: str) -> None:
+    if not DRIVE.is_enabled():
+        return
+    if not DRIVE.get_access_token():
+        return
+    local_path = OUTPUTS_DIR / filename
+    if not local_path.exists():
+        return
+    try:
+        info = DRIVE.upload_file(local_path, folder_kind=folder_kind)
+        with _STATE_LOCK:
+            items = load_items()
+            for it in items:
+                if it.get("id") == item_id:
+                    it["drive_file_id"] = info["drive_file_id"]
+                    it["drive_web_link"] = info["drive_web_link"]
+                    it["drive_sync"] = "synced"
+                    break
+            save_items(items)
+        DRIVE.save_canvas_manifest(items)
+    except Exception as e:
+        with _STATE_LOCK:
+            items = load_items()
+            for it in items:
+                if it.get("id") == item_id:
+                    it["drive_sync"] = "error"
+                    it["drive_error"] = str(e)
+                    break
+            save_items(items)
 
 
 def _run_job_thread(
@@ -135,6 +169,19 @@ def _run_job_thread(
         filename = meta["filename"]
         file_path = OUTPUTS_DIR / filename
         ext = meta.get("file_ext", "png")
+
+        # Sync finished output directly into user's Google Drive
+        drive_info: dict[str, Any] = {}
+        drive_sync_state = "local"
+        if DRIVE.is_enabled() and DRIVE.get_access_token():
+            on_update({"status": "syncing_drive", "stage": "正在自动同步成品到你的 Google Drive...", "progress": 98})
+            try:
+                drive_info = DRIVE.upload_file(file_path, folder_kind="outputs")
+                drive_sync_state = "synced"
+            except Exception as de:
+                drive_sync_state = "error"
+                drive_info = {"drive_error": str(de)}
+
         item = {
             "id": job_id,
             "kind": "video" if ext == "mp4" else "image",
@@ -154,6 +201,9 @@ def _run_job_thread(
             "x": target_x,
             "y": target_y,
             "size_bytes": file_path.stat().st_size if file_path.exists() else 0,
+            "drive_sync": drive_sync_state,
+            "drive_file_id": drive_info.get("drive_file_id"),
+            "drive_web_link": drive_info.get("drive_web_link"),
             "created_at": datetime.now().isoformat(timespec="seconds"),
         }
 
@@ -164,12 +214,14 @@ def _run_job_thread(
             _JOBS[job_id].update(
                 {
                     "status": "completed",
-                    "stage": "已完成！",
+                    "stage": "已完成并同步至 Google Drive！" if drive_sync_state == "synced" else "已完成！",
                     "progress": 100,
                     "elapsed_seconds": round(time.time() - t0, 1),
                     "item": item,
                 }
             )
+        if drive_sync_state == "synced":
+            threading.Thread(target=DRIVE.save_canvas_manifest, args=(items,), daemon=True).start()
     except Exception as e:
         with _STATE_LOCK:
             _JOBS[job_id].update(
@@ -271,17 +323,30 @@ class StudioHandler(BaseHTTPRequestHandler):
         if path == "/api/status":
             force = qs.get("force", ["0"])[0] == "1"
             snap = COLAB.refresh_state(force=force)
+            if snap.get("authenticated") and DRIVE.is_enabled() and not DRIVE.connected:
+                # Lazily connect Drive folder in background without blocking status
+                threading.Thread(target=lambda: _safe_ensure_drive(), daemon=True).start()
             with _STATE_LOCK:
+                items = load_items()
                 active_jobs = [j for j in _JOBS.values() if j.get("status") not in ("completed", "failed")]
             snap["active_jobs"] = active_jobs
             snap["outputs_dir"] = str(OUTPUTS_DIR)
+            snap["drive"] = DRIVE.get_status(items)
             return self.send_json(200, snap)
 
         if path == "/api/canvas":
             with _STATE_LOCK:
                 items = load_items()
                 active_jobs = [j for j in _JOBS.values() if j.get("status") not in ("completed", "failed")]
-            return self.send_json(200, {"items": items, "active_jobs": active_jobs, "outputs_dir": str(OUTPUTS_DIR)})
+            return self.send_json(
+                200,
+                {
+                    "items": items,
+                    "active_jobs": active_jobs,
+                    "outputs_dir": str(OUTPUTS_DIR),
+                    "drive": DRIVE.get_status(items),
+                },
+            )
 
         if path.startswith("/api/jobs/"):
             job_id = path[len("/api/jobs/"):].strip("/")
@@ -307,9 +372,23 @@ class StudioHandler(BaseHTTPRequestHandler):
             try:
                 body = self.read_json()
                 res = COLAB.complete_oauth_login(body.get("code", ""))
+                DRIVE.clear_cached_token()
+                if res.get("authenticated") and DRIVE.is_enabled():
+                    threading.Thread(
+                        target=lambda: _safe_sync_drive(),
+                        daemon=True,
+                    ).start()
                 return self.send_json(200, res)
             except Exception as e:
                 return self.send_json(400, {"error": str(e)})
+
+        if path == "/api/drive/sync":
+            try:
+                res = DRIVE.sync_all(load_local_items=load_items, save_local_items=save_items)
+                res["drive"] = DRIVE.get_status(res["items"])
+                return self.send_json(200, res)
+            except Exception as e:
+                return self.send_json(500, {"error": str(e)})
 
         if path == "/api/settings":
             body = self.read_json()
@@ -322,6 +401,7 @@ class StudioHandler(BaseHTTPRequestHandler):
                 gpu = body.get("gpu") or load_settings().get("preferred_gpu", "L4")
                 save_settings({"preferred_gpu": gpu})
                 snap = COLAB.start_gpu(gpu=gpu)
+                snap["drive"] = DRIVE.get_status(load_items())
                 return self.send_json(200, snap)
             except Exception as e:
                 return self.send_json(500, {"error": str(e)})
@@ -329,6 +409,7 @@ class StudioHandler(BaseHTTPRequestHandler):
         if path == "/api/gpu/stop":
             try:
                 snap = COLAB.stop_gpu()
+                snap["drive"] = DRIVE.get_status(load_items())
                 return self.send_json(200, snap)
             except Exception as e:
                 return self.send_json(500, {"error": str(e)})
@@ -349,6 +430,7 @@ class StudioHandler(BaseHTTPRequestHandler):
                 filename = f"{ts}_material_{item_id[:8]}{ext}"
                 (OUTPUTS_DIR / filename).write_bytes(raw)
 
+                will_sync = DRIVE.is_enabled() and COLAB.authenticated
                 with _STATE_LOCK:
                     items = load_items()
                     x = body.get("x")
@@ -365,10 +447,21 @@ class StudioHandler(BaseHTTPRequestHandler):
                         "x": int(x),
                         "y": int(y),
                         "size_bytes": len(raw),
+                        "drive_sync": "syncing" if will_sync else "local",
+                        "drive_file_id": None,
+                        "drive_web_link": None,
                         "created_at": datetime.now().isoformat(timespec="seconds"),
                     }
                     items.insert(0, item)
                     save_items(items)
+
+                if will_sync:
+                    threading.Thread(
+                        target=_upload_item_to_drive_bg,
+                        args=(item_id, filename, "materials"),
+                        daemon=True,
+                    ).start()
+
                 return self.send_json(200, {"ok": True, "item": item})
             except Exception as e:
                 return self.send_json(400, {"error": f"导入素材失败: {e}"})
@@ -429,7 +522,6 @@ class StudioHandler(BaseHTTPRequestHandler):
         if path == "/api/canvas/layout":
             with _STATE_LOCK:
                 items = load_items()
-                # Group nicely: roots in rows, children right next to parents
                 by_id = {it["id"]: it for it in items}
                 roots = [it for it in reversed(items) if not it.get("parent_id") or it.get("parent_id") not in by_id]
                 children_map: dict[str, list[dict[str, Any]]] = {}
@@ -449,6 +541,7 @@ class StudioHandler(BaseHTTPRequestHandler):
                     rows_used = max(1, min(2, len(kids)))
                     cur_y += rows_used * 350
                 save_items(items)
+            DRIVE.schedule_manifest_sync(load_items, delay=1.5)
             return self.send_json(200, {"ok": True, "items": items})
 
         if path == "/api/open-outputs":
@@ -481,6 +574,7 @@ class StudioHandler(BaseHTTPRequestHandler):
                         break
                 if found:
                     save_items(items)
+                    DRIVE.schedule_manifest_sync(load_items, delay=2.5)
                     return self.send_json(200, {"ok": True, "item": found})
             return self.send_json(404, {"error": "Item not found"})
         self.send_json(404, {"error": "Not found"})
@@ -489,6 +583,7 @@ class StudioHandler(BaseHTTPRequestHandler):
         path = urllib.parse.urlparse(self.path).path
         if path.startswith("/api/canvas/items/"):
             item_id = path[len("/api/canvas/items/"):].strip("/")
+            drive_fid = None
             with _STATE_LOCK:
                 items = load_items()
                 remaining = []
@@ -496,6 +591,7 @@ class StudioHandler(BaseHTTPRequestHandler):
                 for it in items:
                     if it.get("id") == item_id:
                         deleted = True
+                        drive_fid = it.get("drive_file_id")
                         f = OUTPUTS_DIR / it.get("filename", "")
                         if f.exists():
                             f.unlink(missing_ok=True)
@@ -505,9 +601,27 @@ class StudioHandler(BaseHTTPRequestHandler):
                         remaining.append(it)
                 if deleted:
                     save_items(remaining)
-                    return self.send_json(200, {"ok": True})
+            if deleted:
+                if drive_fid and DRIVE.is_enabled():
+                    threading.Thread(target=DRIVE.trash_file, args=(drive_fid,), daemon=True).start()
+                DRIVE.schedule_manifest_sync(load_items, delay=1.0)
+                return self.send_json(200, {"ok": True})
             return self.send_json(404, {"error": "Item not found"})
         self.send_json(404, {"error": "Not found"})
+
+
+def _safe_ensure_drive() -> None:
+    try:
+        DRIVE.ensure_folders()
+    except Exception:
+        pass
+
+
+def _safe_sync_drive() -> None:
+    try:
+        DRIVE.sync_all(load_local_items=load_items, save_local_items=save_items)
+    except Exception:
+        pass
 
 
 def pick_port(preferred: int = 8765) -> int:
@@ -527,12 +641,12 @@ def main() -> None:
     server = ThreadingHTTPServer(("127.0.0.1", port), StudioHandler)
     actual_port = server.server_address[1]
     url = f"http://127.0.0.1:{actual_port}"
-    print("=" * 60)
-    print("  Colab Media Studio · 无限画布创作台已启动")
+    print("=" * 64)
+    print("  Colab Canvas Studio · 无限画布本地创作台已启动")
     print(f"  本地地址: {url}")
-    print(f"  作品目录: {OUTPUTS_DIR}")
-    print("  无需打开 Google Colab 网页，全部在本地 App 中自动托管运行")
-    print("=" * 60)
+    print(f"  本地缓存: {OUTPUTS_DIR}")
+    print("  云端存储: Google Drive / ColabCanvasStudio（自动同步素材与作品）")
+    print("=" * 64)
 
     if not no_browser:
         threading.Timer(0.6, lambda: webbrowser.open(url)).start()
@@ -540,7 +654,7 @@ def main() -> None:
     try:
         server.serve_forever()
     except KeyboardInterrupt:
-        print("\n已关闭 Colab Media Studio。")
+        print("\n已关闭 Colab Canvas Studio。")
     finally:
         server.server_close()
 
