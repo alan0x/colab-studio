@@ -92,6 +92,35 @@
 
       <div class="hud-sep"></div>
 
+      <!-- Google Drive Sync Capsule -->
+      <div class="drive-wrap">
+        <button class="hud-btn hud-btn-ghost drive-trigger" id="driveBtn" title="Google Drive 云端素材与作品库同步">
+          ☁️ <span id="driveBtnText">Drive 云盘</span>
+        </button>
+        <div class="drive-popover hidden" id="drivePopover">
+          <div class="adv-header">
+            <span>☁️ Google Drive 云端同步</span>
+            <button class="icon-close" id="closeDriveBtn">✕</button>
+          </div>
+          <p class="drive-desc">
+            素材与生成的图片/视频会自动存入你的 Google Drive <code>ColabCanvasStudio/</code> 目录（直接利用你的 Google One 空间），画布布局也会云端备份。
+          </p>
+          <div class="drive-stat-row">
+            <span id="driveStatText">登录后自动开启云盘同步</span>
+          </div>
+          <label class="drive-toggle-row">
+            <input type="checkbox" id="driveAutoSyncCheck" checked />
+            <span>自动同步素材与生成作品到 Google Drive</span>
+          </label>
+          <div class="drive-actions">
+            <button class="btn-accent full-w" id="driveSyncNowBtn">🔄 立即双向同步云盘</button>
+            <a class="btn-ghost-box full-w hidden" id="driveOpenFolderLink" target="_blank">↗️ 打开 Google Drive 文件夹</a>
+          </div>
+        </div>
+      </div>
+
+      <div class="hud-sep"></div>
+
       <!-- Google Account Status / Sign-in -->
       <button class="hud-btn hud-btn-primary" id="accountBtn">
         登录 Google 账号
@@ -269,6 +298,7 @@
         <div class="lb-actions">
           <button class="btn-accent full-w hidden" id="lbToVideoBtn">🎬 以此图生成视频</button>
           <button class="btn-ghost-box full-w" id="lbReusePromptBtn">🔁 复用提示词</button>
+          <a class="btn-ghost-box full-w hidden" id="lbDriveLink" target="_blank">☁️ 在 Google Drive 查看</a>
           <a class="btn-ghost-box full-w" id="lbDownloadLink" download>⬇️ 下载到本地</a>
         </div>
       </div>

@@ -543,6 +543,80 @@ html, body {
   color: #fde68a;
 }
 
+/* Google Drive Popover & Badges */
+.drive-wrap {
+  position: relative;
+}
+
+.drive-trigger.synced {
+  background: rgba(16, 185, 129, 0.14);
+  border-color: rgba(16, 185, 129, 0.38);
+  color: #a7f3d0;
+}
+
+.drive-popover {
+  position: absolute;
+  top: 44px;
+  right: 0;
+  width: 320px;
+  background: var(--glass-strong);
+  backdrop-filter: blur(24px);
+  border: 1px solid var(--border-bright);
+  border-radius: 18px;
+  padding: 16px;
+  box-shadow: var(--shadow-lg);
+  z-index: 60;
+}
+
+.drive-desc {
+  margin: 0 0 12px;
+  font-size: 12px;
+  line-height: 1.55;
+  color: var(--muted);
+}
+
+.drive-stat-row {
+  font-size: 12px;
+  font-weight: 600;
+  color: #e2e8f0;
+  padding: 8px 10px;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.05);
+  margin-bottom: 12px;
+}
+
+.drive-toggle-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: #cbd5e1;
+  margin-bottom: 14px;
+  cursor: pointer;
+}
+
+.drive-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.cloud-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  font-size: 10.5px;
+  margin-left: 6px;
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: rgba(16, 185, 129, 0.16);
+  color: #6ee7b7;
+}
+.cloud-badge.syncing {
+  background: rgba(245, 158, 11, 0.16);
+  color: #fde68a;
+}
+
 /* ==================== LEFT TOOL RAIL & ZOOM ==================== */
 .tool-rail {
   position: fixed;

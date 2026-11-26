@@ -309,6 +309,12 @@
       const kindLabel = item.kind === "material" ? "本地素材" : isVideo ? "VIDEO" : "IMAGE";
       const tagClass = item.kind === "material" ? "material" : isVideo ? "video" : "image";
       const subMeta = item.elapsed_seconds ? `${item.model_id} · ${item.elapsed_seconds}s` : item.model_id || "";
+      const cloudBadge =
+        item.drive_sync === "synced"
+          ? `<span class="cloud-badge" title="已同步至 Google Drive">☁️ Drive</span>`
+          : item.drive_sync === "syncing"
+          ? `<span class="cloud-badge syncing" title="正在上传到 Google Drive">⏳ 同步中</span>`
+          : "";
 
       const mediaHtml = isVideo
         ? `<video src="${item.local_url}" loop muted playsinline controls></video>`
@@ -319,11 +325,12 @@
           ${!isVideo ? `<button class="nt-btn accent to-video-btn">🎬 以此图生视频</button>` : ""}
           <button class="nt-btn preview-btn">🔍 预览</button>
           <button class="nt-btn reuse-btn">🔁 提示词</button>
-          <a class="nt-btn" href="${item.local_url}" download="${item.filename}">⬇️</a>
+          ${item.drive_web_link ? `<a class="nt-btn" href="${item.drive_web_link}" target="_blank" title="在 Google Drive 中查看">☁️</a>` : ""}
+          <a class="nt-btn" href="${item.local_url}" download="${item.filename}" title="下载到本地">⬇️</a>
           <button class="nt-btn danger del-btn">🗑️</button>
         </div>
         <div class="node-drag-header">
-          <span class="node-tag ${tagClass}">${kindLabel}</span>
+          <div><span class="node-tag ${tagClass}">${kindLabel}</span>${cloudBadge}</div>
           <span class="node-submeta">${subMeta}</span>
         </div>
         <div class="node-media">${mediaHtml}</div>
@@ -592,6 +599,39 @@
     } else {
       autoPill.classList.add("hidden");
     }
+
+    // 5. Google Drive Sync Status
+    const drv = snap.drive || {};
+    $("driveAutoSyncCheck").checked = drv.enabled !== false;
+    const drvBtn = $("driveBtn");
+    if (drv.syncing) {
+      $("driveBtnText").textContent = "Drive 同步中…";
+      drvBtn.classList.remove("synced");
+    } else if (snap.authenticated && drv.enabled) {
+      $("driveBtnText").textContent = `Drive (${drv.synced_count || 0}/${drv.total_count || 0})`;
+      drvBtn.classList.toggle("synced", Boolean(drv.connected || drv.synced_count > 0));
+    } else {
+      $("driveBtnText").textContent = "Drive 云盘";
+      drvBtn.classList.remove("synced");
+    }
+
+    if (!snap.authenticated) {
+      $("driveStatText").textContent = "请先登录 Google 账号以启用 Google Drive 同步";
+      $("driveSyncNowBtn").disabled = true;
+    } else {
+      $("driveSyncNowBtn").disabled = Boolean(drv.syncing);
+      $("driveStatText").textContent = drv.last_error
+        ? `同步提示：${drv.last_error}`
+        : `已云端备份 ${drv.synced_count || 0} / ${drv.total_count || 0} 个素材与作品`;
+    }
+
+    const folderLink = $("driveOpenFolderLink");
+    if (drv.folder_url) {
+      folderLink.href = drv.folder_url;
+      folderLink.classList.remove("hidden");
+    } else {
+      folderLink.classList.add("hidden");
+    }
   }
 
   async function refreshStatus(force = false) {
@@ -631,6 +671,36 @@
       refreshStatus(true);
     } finally {
       btn.disabled = false;
+    }
+  });
+
+  // ==================== GOOGLE DRIVE SYNC CONTROLS ====================
+  $("driveBtn").addEventListener("click", () => $("drivePopover").classList.toggle("hidden"));
+  $("closeDriveBtn").addEventListener("click", () => $("drivePopover").classList.add("hidden"));
+
+  $("driveAutoSyncCheck").addEventListener("change", async () => {
+    const enabled = $("driveAutoSyncCheck").checked;
+    await api("/api/settings", { method: "POST", body: JSON.stringify({ drive_sync_enabled: enabled }) });
+    toast(enabled ? "已开启自动同步到 Google Drive" : "已暂停自动同步（可随时手动同步）", "success");
+    refreshStatus(false);
+  });
+
+  $("driveSyncNowBtn").addEventListener("click", async () => {
+    if (!state.status?.authenticated) return openAuthModal();
+    const btn = $("driveSyncNowBtn");
+    btn.disabled = true;
+    btn.textContent = "正在双向同步 Google Drive…";
+    try {
+      const res = await api("/api/drive/sync", { method: "POST" });
+      state.items = res.items || state.items;
+      renderCanvas();
+      await refreshStatus(false);
+      toast(`云盘同步完成！上传 ${res.uploaded} 个，从云盘恢复 ${res.downloaded} 个`, "success");
+    } catch (e) {
+      toast(e.message, "error");
+    } finally {
+      btn.disabled = false;
+      btn.textContent = "🔄 立即双向同步云盘";
     }
   });
 
@@ -682,7 +752,15 @@
       });
       closeAuthModal();
       await refreshStatus(true);
-      toast(`绑定成功！欢迎 ${res.email || ""}`, "success");
+      toast(`绑定成功！欢迎 ${res.email || ""}，正在同步你的 Google Drive 画布…`, "success");
+      setTimeout(async () => {
+        try {
+          const canvas = await api("/api/canvas");
+          state.items = canvas.items || state.items;
+          renderCanvas();
+          await refreshStatus(false);
+        } catch (_) {}
+      }, 2800);
     } catch (e) {
       toast(e.message, "error");
     } finally {
@@ -805,6 +883,13 @@
 
     $("lbDownloadLink").href = item.local_url;
     $("lbDownloadLink").download = item.filename;
+    const lbDrive = $("lbDriveLink");
+    if (item.drive_web_link) {
+      lbDrive.href = item.drive_web_link;
+      lbDrive.classList.remove("hidden");
+    } else {
+      lbDrive.classList.add("hidden");
+    }
     $("lbToVideoBtn").classList.toggle("hidden", isVideo);
     $("lightboxModal").classList.remove("hidden");
   }
