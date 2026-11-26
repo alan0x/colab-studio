@@ -63,10 +63,13 @@ jobs:
             --icon "windows/AppIcon.ico" `
             --add-data "local_app/static;local_app/static" `
             --add-data "local_app/remote_worker.py;local_app" `
+            --add-data "local_app/remote_llm_server.py;local_app" `
             --paths "local_app" `
             --hidden-import "server" `
             --hidden-import "colab_manager" `
             --hidden-import "drive_manager" `
+            --hidden-import "agent_engine" `
+            --hidden-import "agent_tools" `
             --hidden-import "colab_cli.cli" `
             --hidden-import "colab_cli.auth" `
             --collect-data "colab_cli" `

@@ -90,7 +90,7 @@ def _run_headless_smoke_test() -> int:
     base = f"http://127.0.0.1:{actual_port}"
     try:
         # 1. HTML + static assets (Connection: close avoids HTTP/1.1 keep-alive hang)
-        for path, must_contain in (("/", b"Colab Canvas Studio"), ("/app.js", b"boot")):
+        for path, must_contain in (("/", b"Colab Agent Studio"), ("/app.js", b"boot"), ("/agent.js", b"sendChatMessage")):
             req = urllib.request.Request(f"{base}{path}", headers={"Connection": "close"})
             with urllib.request.urlopen(req, timeout=5) as resp:
                 body = resp.read()
