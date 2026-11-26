@@ -1,23 +1,53 @@
 (() => {
-  const state = {
-    connected: false,
-    health: null,
-    config: {},
-    idleDismissed: false,
-    lastImageItem: null,
-    i2vBase64: null,
-    i2vGalleryId: null,
-    activePoll: null,
+  const $ = (id) => document.getElementById(id);
+
+  const MODELS = {
+    video: [
+      { id: "ltx-video", label: "LTX-Video 2B · 极速省单元 (T4/L4/A100)", steps: 28, guidance: 3.5, fps: 24, supportsI2V: true },
+      { id: "wan2.2-5b", label: "阿里 Wan 2.2 5B · 电影级画质 (L4/A100)", steps: 35, guidance: 5.0, fps: 16, supportsI2V: true },
+      { id: "wan2.1-1.3b", label: "阿里 Wan 2.1 1.3B · 轻量文生视频 (T4/L4)", steps: 30, guidance: 5.0, fps: 16, supportsI2V: false },
+    ],
+    image: [
+      { id: "flux-schnell", label: "FLUX.1-schnell · 4步极速高清", steps: 4, guidance: 0, supportsI2V: false },
+      { id: "sdxl-base", label: "SDXL 1.0 Base · 经典高质", steps: 25, guidance: 7.5, supportsI2V: false },
+    ],
   };
 
-  const $ = (id) => document.getElementById(id);
+  const RATIOS = {
+    image: {
+      "16:9": [1024, 576],
+      "9:16": [576, 1024],
+      "1:1": [1024, 1024],
+      "4:3": [896, 672],
+    },
+    video: {
+      "16:9": [704, 480],
+      "9:16": [480, 704],
+      "1:1": [512, 512],
+      "4:3": [640, 480],
+    },
+  };
+
+  const state = {
+    mode: "video",
+    tool: "select", // select | pan
+    spacePressed: false,
+    pan: { x: 80, y: 76 },
+    scale: 1,
+    items: [],
+    activeJobs: [],
+    selectedId: null,
+    refItem: null, // { id, local_url, filename }
+    status: null,
+    lightboxItem: null,
+  };
 
   function toast(msg, type = "info") {
     const el = document.createElement("div");
     el.className = `toast ${type}`;
     el.textContent = msg;
-    $("toastContainer").appendChild(el);
-    setTimeout(() => el.remove(), 4200);
+    $("toastStack").appendChild(el);
+    setTimeout(() => el.remove(), 4500);
   }
 
   async function api(url, opts = {}) {
@@ -26,465 +56,797 @@
       ...opts,
     });
     const data = await res.json().catch(() => ({}));
-    if (!res.ok) {
-      throw new Error(data.error || `请求失败 (${res.status})`);
-    }
+    if (!res.ok) throw new Error(data.error || `请求失败 (${res.status})`);
     return data;
   }
 
-  function formatDuration(sec) {
-    if (sec == null) return "--";
-    const s = Math.max(0, Math.floor(sec));
-    const h = Math.floor(s / 3600);
-    const m = Math.floor((s % 3600) / 60);
-    const rem = s % 60;
-    if (h > 0) return `${h}h ${m}m`;
-    if (m > 0) return `${m}m ${rem}s`;
-    return `${rem}s`;
+  // ==================== INFINITE CANVAS TRANSFORM ====================
+  function applyTransform() {
+    $("canvasWorld").style.transform = `translate(${state.pan.x}px, ${state.pan.y}px) scale(${state.scale})`;
+    const gridSize = 28 * state.scale;
+    $("canvasGrid").style.backgroundSize = `${gridSize}px ${gridSize}px`;
+    $("canvasGrid").style.backgroundPosition = `${state.pan.x}px ${state.pan.y}px`;
+    $("zoomResetBtn").textContent = `${Math.round(state.scale * 100)}%`;
   }
 
-  // Tabs
-  document.querySelectorAll(".tab").forEach((btn) => {
-    btn.addEventListener("click", () => {
-      document.querySelectorAll(".tab").forEach((b) => b.classList.remove("active"));
-      document.querySelectorAll(".panel").forEach((p) => p.classList.remove("active"));
-      btn.classList.add("active");
-      $(`tab-${btn.dataset.tab}`).classList.add("active");
-      if (btn.dataset.tab === "gallery") loadGallery();
-    });
-  });
-
-  // Model parameter defaults
-  $("imgModel").addEventListener("change", () => {
-    const m = $("imgModel").value;
-    if (m === "flux-schnell") {
-      $("imgSteps").value = 4;
-      $("imgGuidance").value = 0;
-      $("imgNegField").classList.add("hidden");
-      $("imgModelHint").textContent = "FLUX.1-schnell：4 步极速出高清图，无需反向提示词，非常省计算单元。";
-    } else {
-      $("imgSteps").value = 25;
-      $("imgGuidance").value = 7.5;
-      $("imgNegField").classList.remove("hidden");
-      $("imgModelHint").textContent = "SDXL 1.0：经典高质模型，支持反向提示词，T4 上显存占用极低。";
-    }
-  });
-  $("imgModel").dispatchEvent(new Event("change"));
-
-  $("vidModel").addEventListener("change", () => {
-    const m = $("vidModel").value;
-    if (m === "ltx-video") {
-      $("vidSteps").value = 28;
-      $("vidGuidance").value = 3.5;
-      $("i2vUploadField").classList.remove("hidden");
-      $("vidModelHint").textContent = "LTX-Video 2B：T4 16GB 即可流畅运行，支持文生视频 + 图生视频，最省计算单元。";
-    } else if (m === "wan2.1-1.3b") {
-      $("vidSteps").value = 30;
-      $("vidGuidance").value = 5.0;
-      $("i2vUploadField").classList.add("hidden");
-      $("vidModelHint").textContent = "阿里 Wan 2.1 1.3B：轻量高质文生视频模型，T4 / L4 均可运行。";
-    } else {
-      $("vidSteps").value = 35;
-      $("vidGuidance").value = 5.0;
-      $("i2vUploadField").classList.remove("hidden");
-      $("vidModelHint").textContent = "阿里 Wan 2.2 TI2V-5B：画质出众，支持文生+图生视频，推荐在 L4 (24GB) 或 A100 上运行。";
-    }
-  });
-
-  // I2V image upload
-  $("i2vDropZone").addEventListener("click", (e) => {
-    if (e.target.id === "clearI2vBtn") return;
-    $("i2vFileInput").click();
-  });
-
-  $("i2vFileInput").addEventListener("change", () => {
-    const file = $("i2vFileInput").files?.[0];
-    if (!file) return;
-    const reader = new FileReader();
-    reader.onload = () => {
-      const dataUrl = String(reader.result || "");
-      state.i2vBase64 = dataUrl.includes(",") ? dataUrl.split(",")[1] : dataUrl;
-      state.i2vGalleryId = null;
-      showI2vPreview(dataUrl);
+  function screenToWorld(clientX, clientY) {
+    const rect = $("canvasViewport").getBoundingClientRect();
+    return {
+      x: (clientX - rect.left - state.pan.x) / state.scale,
+      y: (clientY - rect.top - state.pan.y) / state.scale,
     };
-    reader.readAsDataURL(file);
-  });
-
-  function showI2vPreview(src) {
-    $("i2vPreviewImg").src = src;
-    $("i2vEmptyHint").classList.add("hidden");
-    $("i2vPreviewBox").classList.remove("hidden");
   }
 
-  $("clearI2vBtn").addEventListener("click", (e) => {
-    e.stopPropagation();
-    state.i2vBase64 = null;
-    state.i2vGalleryId = null;
-    $("i2vFileInput").value = "";
-    $("i2vPreviewBox").classList.add("hidden");
-    $("i2vEmptyHint").classList.remove("hidden");
-  });
-
-  function useGalleryItemForVideo(item) {
-    state.i2vBase64 = null;
-    state.i2vGalleryId = item.id;
-    showI2vPreview(item.local_url);
-    if ($("vidModel").value === "wan2.1-1.3b") {
-      $("vidModel").value = "ltx-video";
-      $("vidModel").dispatchEvent(new Event("change"));
-    }
-    if (!$("vidPrompt").value.trim() && item.prompt) {
-      $("vidPrompt").value = `${item.prompt}, smooth cinematic camera motion`;
-    }
-    document.querySelector('.tab[data-tab="video"]').click();
-    toast("已载入参考图，现在可直接生成图生视频！", "success");
+  function setZoom(newScale, anchorX, anchorY) {
+    const clamped = Math.min(2.0, Math.max(0.25, newScale));
+    const rect = $("canvasViewport").getBoundingClientRect();
+    const cx = anchorX ?? rect.width / 2;
+    const cy = anchorY ?? rect.height / 2;
+    const wx = (cx - state.pan.x) / state.scale;
+    const wy = (cy - state.pan.y) / state.scale;
+    state.scale = clamped;
+    state.pan.x = cx - wx * clamped;
+    state.pan.y = cy - wy * clamped;
+    applyTransform();
   }
 
-  $("sendImgToVideoBtn").addEventListener("click", () => {
-    if (state.lastImageItem) useGalleryItemForVideo(state.lastImageItem);
-  });
-
-  // Status & Telemetry polling
-  async function refreshStatus() {
-    try {
-      const res = await api("/local/status");
-      state.connected = Boolean(res.connected);
-      state.health = res.health;
-      state.config = res.config || {};
-
-      const pill = $("statusPill");
-      if (state.connected && state.health) {
-        const h = state.health;
-        pill.classList.add("online");
-        pill.classList.remove("offline");
-        $("statusText").textContent = h.drive_mounted ? "已连接 · Drive缓存就绪" : "已连接 Colab";
-        $("gpuValue").textContent = `${h.gpu_name} (${h.vram_used_gb}/${h.vram_total_gb}GB)`;
-        $("unitValue").textContent = `~${Number(h.est_cu_used || 0).toFixed(2)} CU`;
-        $("uptimeValue").textContent = formatDuration(h.uptime_seconds);
-        $("shutdownBtn").disabled = false;
-
-        const alertMin = Number(state.config.idle_alert_minutes || 10);
-        const idleMin = Math.floor((h.idle_seconds || 0) / 60);
-        if (!h.active_job_id && idleMin >= alertMin && !state.idleDismissed) {
-          $("idleMinutesText").textContent = String(idleMin);
-          $("idleBanner").classList.remove("hidden");
-        } else if (h.active_job_id || idleMin < alertMin) {
-          $("idleBanner").classList.add("hidden");
-          state.idleDismissed = false;
-        }
-      } else {
-        pill.classList.remove("online");
-        pill.classList.add("offline");
-        $("statusText").textContent = res.configured ? "Colab 未响应 / 已断开" : "未连接 Colab";
-        $("gpuValue").textContent = "--";
-        $("unitValue").textContent = "0.00 CU";
-        $("uptimeValue").textContent = "--";
-        $("shutdownBtn").disabled = true;
-        $("idleBanner").classList.add("hidden");
-      }
-    } catch (_) {
-      // ignore background poll error
-    }
-  }
-
-  // Modal controls
-  function openConnectModal() {
-    $("connectCodeInput").value = "";
-    $("colabUrlInput").value = state.config.colab_url || "";
-    $("colabTokenInput").value = state.config.colab_token || "";
-    $("idleAlertInput").value = state.config.idle_alert_minutes || 10;
-    $("connectModal").classList.remove("hidden");
-  }
-  function closeConnectModal() {
-    $("connectModal").classList.add("hidden");
-  }
-
-  $("connectModalBtn").addEventListener("click", openConnectModal);
-  $("closeModalBtn").addEventListener("click", closeConnectModal);
-  $("cancelModalBtn").addEventListener("click", closeConnectModal);
-
-  $("saveConnectBtn").addEventListener("click", async () => {
-    try {
-      await api("/local/config", {
-        method: "POST",
-        body: JSON.stringify({
-          connect_code: $("connectCodeInput").value.trim(),
-          colab_url: $("colabUrlInput").value.trim(),
-          colab_token: $("colabTokenInput").value.trim(),
-          idle_alert_minutes: Number($("idleAlertInput").value || 10),
-        }),
-      });
-      closeConnectModal();
-      await refreshStatus();
-      if (state.connected) {
-        toast(`连接成功！当前显卡：${state.health.gpu_name}`, "success");
-      } else {
-        toast("配置已保存，但暂未检测到在线的 Colab 服务，请确认 Notebook 正在运行。", "error");
-      }
-    } catch (e) {
-      toast(e.message, "error");
-    }
-  });
-
-  // Remote unload & shutdown
-  async function handleUnload() {
-    if (!state.connected) return toast("尚未连接 Colab", "error");
-    try {
-      await api("/local/unload", { method: "POST" });
-      toast("已清理云端 GPU 显存缓存", "success");
-      refreshStatus();
-    } catch (e) {
-      toast(e.message, "error");
-    }
-  }
-  $("unloadGpuBtn1").addEventListener("click", handleUnload);
-  $("unloadGpuBtn2").addEventListener("click", handleUnload);
-
-  async function handleShutdown() {
-    if (!confirm("确定立即远程断开并删除 Colab 运行时吗？\n\n这将立刻停止消耗你的计算单元（已生成的作品已保存在本地）。")) {
+  function fitToView() {
+    const allNodes = [
+      ...state.items.map((it) => ({ x: it.x || 0, y: it.y || 0, w: 340, h: 300 })),
+      ...state.activeJobs.map((j) => ({ x: j.x || 0, y: j.y || 0, w: 340, h: 300 })),
+    ];
+    if (!allNodes.length) {
+      state.pan = { x: 80, y: 76 };
+      state.scale = 1;
+      applyTransform();
       return;
     }
+    const minX = Math.min(...allNodes.map((n) => n.x));
+    const minY = Math.min(...allNodes.map((n) => n.y));
+    const maxX = Math.max(...allNodes.map((n) => n.x + n.w));
+    const maxY = Math.max(...allNodes.map((n) => n.y + n.h));
+    const vw = window.innerWidth - 160;
+    const vh = window.innerHeight - 280;
+    const scale = Math.min(1.15, Math.max(0.3, Math.min(vw / (maxX - minX + 80), vh / (maxY - minY + 80))));
+    state.scale = scale;
+    state.pan.x = (window.innerWidth - (maxX - minX) * scale) / 2 - minX * scale;
+    state.pan.y = (window.innerHeight - 120 - (maxY - minY) * scale) / 2 - minY * scale;
+    applyTransform();
+  }
+
+  // Pan & Wheel interactions
+  let isPanning = false;
+  let panStart = { x: 0, y: 0 };
+
+  $("canvasViewport").addEventListener("pointerdown", (e) => {
+    const onEmpty = e.target === $("canvasViewport") || e.target === $("canvasGrid") || e.target === $("canvasWorld");
+    if (onEmpty) {
+      selectNode(null);
+    }
+    if (state.tool === "pan" || state.spacePressed || e.button === 1 || (onEmpty && e.button === 0)) {
+      isPanning = true;
+      panStart = { x: e.clientX - state.pan.x, y: e.clientY - state.pan.y };
+      $("canvasViewport").classList.add("panning-active");
+    }
+  });
+
+  window.addEventListener("pointermove", (e) => {
+    if (!isPanning) return;
+    state.pan.x = e.clientX - panStart.x;
+    state.pan.y = e.clientY - panStart.y;
+    applyTransform();
+  });
+
+  window.addEventListener("pointerup", () => {
+    if (isPanning) {
+      isPanning = false;
+      $("canvasViewport").classList.remove("panning-active");
+    }
+  });
+
+  $("canvasViewport").addEventListener(
+    "wheel",
+    (e) => {
+      e.preventDefault();
+      if (e.ctrlKey || e.metaKey) {
+        const delta = -e.deltaY * 0.003;
+        setZoom(state.scale * (1 + delta), e.clientX, e.clientY);
+      } else {
+        state.pan.x -= e.deltaX;
+        state.pan.y -= e.deltaY;
+        applyTransform();
+      }
+    },
+    { passive: false }
+  );
+
+  window.addEventListener("keydown", (e) => {
+    if (e.code === "Space" && document.activeElement?.tagName !== "TEXTAREA" && document.activeElement?.tagName !== "INPUT") {
+      state.spacePressed = true;
+      $("canvasViewport").classList.add("panning-mode");
+    }
+  });
+  window.addEventListener("keyup", (e) => {
+    if (e.code === "Space") {
+      state.spacePressed = false;
+      if (state.tool !== "pan") $("canvasViewport").classList.remove("panning-mode");
+    }
+  });
+
+  // Left tool rail & Zoom buttons
+  $("toolSelectBtn").addEventListener("click", () => {
+    state.tool = "select";
+    $("toolSelectBtn").classList.add("active");
+    $("toolPanBtn").classList.remove("active");
+    $("canvasViewport").classList.remove("panning-mode");
+  });
+  $("toolPanBtn").addEventListener("click", () => {
+    state.tool = "pan";
+    $("toolPanBtn").classList.add("active");
+    $("toolSelectBtn").classList.remove("active");
+    $("canvasViewport").classList.add("panning-mode");
+  });
+  $("zoomInBtn").addEventListener("click", () => setZoom(state.scale + 0.15));
+  $("zoomOutBtn").addEventListener("click", () => setZoom(state.scale - 0.15));
+  $("zoomResetBtn").addEventListener("click", () => setZoom(1.0));
+  $("fitViewBtn").addEventListener("click", fitToView);
+
+  $("tidyLayoutBtn").addEventListener("click", async () => {
     try {
-      await api("/local/shutdown", { method: "POST" });
-      toast("已发送释放指令，Colab 运行时将在 2 秒内彻底关闭并停止计费！", "success");
-      $("idleBanner").classList.add("hidden");
-      setTimeout(refreshStatus, 2500);
+      const res = await api("/api/canvas/layout", { method: "POST" });
+      state.items = res.items || [];
+      renderCanvas();
+      fitToView();
+      toast("已按图文关联重新整理画布布局", "success");
     } catch (e) {
       toast(e.message, "error");
     }
-  }
-  $("shutdownBtn").addEventListener("click", handleShutdown);
-  $("idleShutdownBtn").addEventListener("click", handleShutdown);
-  $("dismissIdleBtn").addEventListener("click", () => {
-    state.idleDismissed = true;
-    $("idleBanner").classList.add("hidden");
   });
 
-  // Job polling helper
-  async function pollJob(jobId, kind) {
-    const isImg = kind === "image";
-    const progressBox = $(isImg ? "imgProgressBox" : "vidProgressBox");
-    const stageEl = $(isImg ? "imgStageText" : "vidStageText");
-    const pctEl = $(isImg ? "imgPctText" : "vidPctText");
-    const fillEl = $(isImg ? "imgProgressFill" : "vidProgressFill");
-    const btn = $(isImg ? "generateImgBtn" : "generateVidBtn");
-
-    progressBox.classList.remove("hidden");
-    btn.disabled = true;
-
-    while (true) {
-      await new Promise((r) => setTimeout(r, 1500));
-      const job = await api(`/local/jobs/${jobId}`);
-      const pct = Math.min(100, Math.max(0, Number(job.progress || 0)));
-      stageEl.textContent = job.stage || job.status;
-      pctEl.textContent = `${pct}%`;
-      fillEl.style.width = `${pct}%`;
-
-      if (job.status === "completed") {
-        btn.disabled = false;
-        if (job.download_error) {
-          throw new Error(job.download_error);
-        }
-        return job;
-      }
-      if (job.status === "failed") {
-        btn.disabled = false;
-        throw new Error(job.error || "云端推理失败");
-      }
+  $("openFolderBtn").addEventListener("click", async () => {
+    try {
+      await api("/api/open-outputs", { method: "POST" });
+    } catch (e) {
+      toast(e.message, "error");
     }
+  });
+
+  // ==================== CANVAS RENDERING & SVG CONNECTORS ====================
+  function selectNode(id) {
+    state.selectedId = id;
+    document.querySelectorAll(".canvas-node").forEach((el) => {
+      el.classList.toggle("selected", el.dataset.id === id);
+    });
   }
 
-  // Generate Image
-  $("generateImgBtn").addEventListener("click", async () => {
-    if (!state.connected) {
-      openConnectModal();
-      return toast("请先连接你的 Colab 云端引擎", "error");
-    }
-    const prompt = $("imgPrompt").value.trim();
-    if (!prompt) return toast("请输入图片提示词", "error");
+  function renderConnectors() {
+    const svg = $("connectorLayer");
+    const defs = `
+      <defs>
+        <linearGradient id="connGrad" x1="0%" y1="0%" x2="100%" y2="0%">
+          <stop offset="0%" stop-color="#6366f1"/>
+          <stop offset="100%" stop-color="#a855f7"/>
+        </linearGradient>
+      </defs>`;
+    const nodeMap = new Map();
+    for (const it of state.items) nodeMap.set(it.id, { x: it.x || 0, y: it.y || 0, w: 340, h: 260 });
+    for (const j of state.activeJobs) nodeMap.set(j.job_id, { x: j.x || 0, y: j.y || 0, w: 340, h: 260 });
 
-    const [width, height] = $("imgSize").value.split("x").map(Number);
-    try {
-      const start = await api("/local/generate", {
-        method: "POST",
-        body: JSON.stringify({
-          task: "image",
-          model_id: $("imgModel").value,
-          prompt,
-          negative_prompt: $("imgNegative").value.trim(),
-          width,
-          height,
-          steps: Number($("imgSteps").value || 4),
-          guidance_scale: Number($("imgGuidance").value || 0),
-          seed: Number($("imgSeed").value ?? -1),
-        }),
+    const paths = [];
+    const drawEdge = (parentId, childId, animated = false) => {
+      const p = nodeMap.get(parentId);
+      const c = nodeMap.get(childId);
+      if (!p || !c) return;
+      const x1 = p.x + p.w;
+      const y1 = p.y + 135;
+      const x2 = c.x;
+      const y2 = c.y + 135;
+      const dx = Math.max(80, Math.abs(x2 - x1) * 0.45);
+      const d = `M ${x1} ${y1} C ${x1 + dx} ${y1}, ${x2 - dx} ${y2}, ${x2} ${y2}`;
+      paths.push(`<path class="connector-path ${animated ? "animated" : ""}" d="${d}" />`);
+    };
+
+    for (const it of state.items) {
+      if (it.parent_id) drawEdge(it.parent_id, it.id, false);
+    }
+    for (const j of state.activeJobs) {
+      if (j.parent_id) drawEdge(j.parent_id, j.job_id, true);
+    }
+    svg.innerHTML = defs + paths.join("");
+  }
+
+  function attachNodeDrag(el, item) {
+    const handle = el.querySelector(".node-drag-header");
+    let dragging = false;
+    let startMouse = { x: 0, y: 0 };
+    let startPos = { x: 0, y: 0 };
+
+    handle.addEventListener("pointerdown", (e) => {
+      if (state.tool === "pan" || state.spacePressed) return;
+      e.stopPropagation();
+      selectNode(item.id);
+      dragging = true;
+      startMouse = { x: e.clientX, y: e.clientY };
+      startPos = { x: item.x || 0, y: item.y || 0 };
+      handle.setPointerCapture(e.pointerId);
+    });
+
+    handle.addEventListener("pointermove", (e) => {
+      if (!dragging) return;
+      item.x = Math.round(startPos.x + (e.clientX - startMouse.x) / state.scale);
+      item.y = Math.round(startPos.y + (e.clientY - startMouse.y) / state.scale);
+      el.style.left = `${item.x}px`;
+      el.style.top = `${item.y}px`;
+      renderConnectors();
+    });
+
+    handle.addEventListener("pointerup", () => {
+      if (!dragging) return;
+      dragging = false;
+      api(`/api/canvas/items/${item.id}`, {
+        method: "PATCH",
+        body: JSON.stringify({ x: item.x, y: item.y }),
+      }).catch(() => {});
+    });
+  }
+
+  function renderCanvas() {
+    const layer = $("nodesLayer");
+    layer.innerHTML = "";
+    const totalCount = state.items.length + state.activeJobs.length;
+    $("nodeCountLabel").textContent = `${totalCount} 个画布节点`;
+    $("canvasWelcome").classList.toggle("hidden", totalCount > 0);
+
+    // 1. Render completed / material items
+    for (const item of state.items) {
+      const el = document.createElement("div");
+      el.className = `canvas-node ${state.selectedId === item.id ? "selected" : ""}`;
+      el.dataset.id = item.id;
+      el.style.left = `${item.x || 120}px`;
+      el.style.top = `${item.y || 120}px`;
+
+      const isVideo = item.kind === "video" || item.filename.endsWith(".mp4");
+      const kindLabel = item.kind === "material" ? "本地素材" : isVideo ? "VIDEO" : "IMAGE";
+      const tagClass = item.kind === "material" ? "material" : isVideo ? "video" : "image";
+      const subMeta = item.elapsed_seconds ? `${item.model_id} · ${item.elapsed_seconds}s` : item.model_id || "";
+
+      const mediaHtml = isVideo
+        ? `<video src="${item.local_url}" loop muted playsinline controls></video>`
+        : `<img src="${item.local_url}" alt="Canvas media" loading="lazy" />`;
+
+      el.innerHTML = `
+        <div class="node-toolbar">
+          ${!isVideo ? `<button class="nt-btn accent to-video-btn">🎬 以此图生视频</button>` : ""}
+          <button class="nt-btn preview-btn">🔍 预览</button>
+          <button class="nt-btn reuse-btn">🔁 提示词</button>
+          <a class="nt-btn" href="${item.local_url}" download="${item.filename}">⬇️</a>
+          <button class="nt-btn danger del-btn">🗑️</button>
+        </div>
+        <div class="node-drag-header">
+          <span class="node-tag ${tagClass}">${kindLabel}</span>
+          <span class="node-submeta">${subMeta}</span>
+        </div>
+        <div class="node-media">${mediaHtml}</div>
+        <div class="node-footer">
+          <div class="node-prompt" title="${(item.prompt || "").replace(/"/g, "&quot;")}">${item.prompt || item.filename}</div>
+        </div>
+      `;
+
+      el.addEventListener("pointerdown", (e) => {
+        e.stopPropagation();
+        selectNode(item.id);
       });
-      const done = await pollJob(start.job_id, "image");
-      const item = done.local_item;
-      state.lastImageItem = item;
-      $("imgPreviewStage").innerHTML = `<img src="${item.local_url}" alt="Generated image" />`;
-      $("downloadImgLink").href = item.local_url;
-      $("downloadImgLink").download = item.filename;
-      $("imgResultActions").classList.remove("hidden");
-      $("imgMetaFooter").classList.remove("hidden");
-      $("imgMetaFooter").textContent = `模型: ${item.model_id} · 耗时: ${done.elapsed_seconds}s · 种子: ${item.seed} · 已存本地: outputs/${item.filename}`;
-      toast("图片生成完成并已保存到本地！", "success");
-      loadGallery();
-      refreshStatus();
-    } catch (e) {
-      $("generateImgBtn").disabled = false;
-      toast(e.message, "error");
-    }
-  });
 
-  // Generate Video
-  $("generateVidBtn").addEventListener("click", async () => {
-    if (!state.connected) {
-      openConnectModal();
-      return toast("请先连接你的 Colab 云端引擎", "error");
-    }
-    const prompt = $("vidPrompt").value.trim();
-    if (!prompt) return toast("请输入视频提示词", "error");
+      el.querySelector(".node-media").addEventListener("dblclick", () => openLightbox(item));
+      const toVid = el.querySelector(".to-video-btn");
+      if (toVid) toVid.addEventListener("click", () => attachReferenceItem(item));
+      el.querySelector(".preview-btn").addEventListener("click", () => openLightbox(item));
+      el.querySelector(".reuse-btn").addEventListener("click", () => reusePrompt(item));
+      el.querySelector(".del-btn").addEventListener("click", async () => {
+        if (!confirm("确定从画布和本地删除这个文件吗？")) return;
+        await api(`/api/canvas/items/${item.id}`, { method: "DELETE" });
+        if (state.refItem?.id === item.id) clearReferenceItem();
+        state.items = state.items.filter((x) => x.id !== item.id);
+        renderCanvas();
+      });
 
-    const [width, height] = $("vidSize").value.split("x").map(Number);
-    const modelId = $("vidModel").value;
-    if (modelId === "wan2.2-5b" && state.health && state.health.vram_total_gb < 20) {
-      if (!confirm("当前 Colab 分配的是 16GB 显存显卡（如 T4），跑 Wan 2.2 5B 可能显存不足或极慢。仍要尝试吗？\n\n（推荐改选 LTX-Video 2B 或 Wan 2.1 1.3B）")) {
-        return;
-      }
+      attachNodeDrag(el, item);
+      layer.appendChild(el);
     }
 
+    // 2. Render live generating job cards
+    for (const job of state.activeJobs) {
+      const el = document.createElement("div");
+      el.className = "canvas-node generating";
+      el.dataset.id = job.job_id;
+      el.style.left = `${job.x || 120}px`;
+      el.style.top = `${job.y || 120}px`;
+      const pct = Math.min(100, Math.max(2, Number(job.progress || 2)));
+
+      el.innerHTML = `
+        <div class="node-drag-header">
+          <span class="node-tag ${job.task === "video" ? "video" : "image"}">生成中 · ${job.model_id}</span>
+          <span class="node-submeta">${Number(job.elapsed_seconds || 0).toFixed(0)}s</span>
+        </div>
+        <div class="gen-stage-canvas">
+          <div class="gen-spinner"></div>
+          <div class="gen-stage-text">${job.stage || "正在云端 GPU 渲染..."}</div>
+          <div class="gen-progress-wrap">
+            <div class="gen-progress-track">
+              <div class="gen-progress-fill" style="width:${pct}%"></div>
+            </div>
+            <div class="gen-progress-meta">
+              <span>${job.gpu_name ? job.gpu_name : "Colab GPU"}</span>
+              <span>${pct}%</span>
+            </div>
+          </div>
+        </div>
+        <div class="node-footer">
+          <div class="node-prompt">${job.prompt || ""}</div>
+        </div>
+      `;
+      layer.appendChild(el);
+    }
+
+    renderConnectors();
+  }
+
+  // ==================== MATERIAL IMPORT (DRAG & DROP OR FILE PICKER) ====================
+  async function uploadMaterialFile(file, worldPos = null) {
+    if (!file || !file.type.startsWith("image/")) {
+      return toast("请拖入图片文件（PNG / JPG / WebP）", "error");
+    }
+    const dataUrl = await new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(String(reader.result || ""));
+      reader.onerror = reject;
+      reader.readAsDataURL(file);
+    });
     try {
-      const payload = {
-        task: "video",
-        model_id: modelId,
-        prompt,
-        negative_prompt: $("vidNegative").value.trim(),
-        width,
-        height,
-        num_frames: Number($("vidFrames").value || 49),
-        fps: modelId === "ltx-video" ? 24 : 16,
-        steps: Number($("vidSteps").value || 28),
-        guidance_scale: Number($("vidGuidance").value || 3.5),
-        seed: Number($("vidSeed").value ?? -1),
-      };
-      if (modelId !== "wan2.1-1.3b") {
-        if (state.i2vBase64) payload.init_image_base64 = state.i2vBase64;
-        if (state.i2vGalleryId) payload.source_gallery_id = state.i2vGalleryId;
+      const payload = { filename: file.name, data_base64: dataUrl };
+      if (worldPos) {
+        payload.x = Math.round(worldPos.x - 170);
+        payload.y = Math.round(worldPos.y - 120);
       }
-
-      const start = await api("/local/generate", {
+      const res = await api("/api/materials/upload", {
         method: "POST",
         body: JSON.stringify(payload),
       });
-      const done = await pollJob(start.job_id, "video");
-      const item = done.local_item;
-      $("vidPreviewStage").innerHTML = `<video src="${item.local_url}" controls autoplay loop playsinline></video>`;
-      $("downloadVidLink").href = item.local_url;
-      $("downloadVidLink").download = item.filename;
-      $("vidResultActions").classList.remove("hidden");
-      $("vidMetaFooter").classList.remove("hidden");
-      $("vidMetaFooter").textContent = `模型: ${item.model_id} · 耗时: ${done.elapsed_seconds}s · 种子: ${item.seed} · 已存本地: outputs/${item.filename}`;
-      toast("视频生成完成并已保存到本地！", "success");
-      loadGallery();
-      refreshStatus();
-    } catch (e) {
-      $("generateVidBtn").disabled = false;
-      toast(e.message, "error");
-    }
-  });
-
-  // MiniMax-H3 ComfyUI launcher
-  $("saveComfyUrlBtn").addEventListener("click", async () => {
-    const url = $("comfyUrlInput").value.trim();
-    await api("/local/config", { method: "POST", body: JSON.stringify({ comfyui_url: url }) });
-    toast("已保存 MiniMax-H3 ComfyUI 链接", "success");
-  });
-  $("openComfyBtn").addEventListener("click", () => {
-    const url = $("comfyUrlInput").value.trim();
-    if (!url) return toast("请先粘贴 ComfyUI 的临时隧道链接", "error");
-    window.open(url, "_blank");
-  });
-
-  // Finder shortcuts
-  async function openFolder(target) {
-    try {
-      await api("/local/open-folder", { method: "POST", body: JSON.stringify({ target }) });
+      state.items.unshift(res.item);
+      attachReferenceItem(res.item);
+      renderCanvas();
+      toast("素材图已导入画布并关联为参考首帧", "success");
     } catch (e) {
       toast(e.message, "error");
     }
   }
-  $("openOutputsFolderBtn").addEventListener("click", () => openFolder("outputs"));
-  $("openColabFolderBtn").addEventListener("click", () => openFolder("colab"));
-  $("guideOpenColabBtn").addEventListener("click", () => openFolder("colab"));
 
-  // Local Gallery
-  async function loadGallery() {
+  $("importMaterialBtn").addEventListener("click", () => $("materialFileInput").click());
+  $("welcomeUploadBtn").addEventListener("click", () => $("materialFileInput").click());
+  $("refSlot").addEventListener("click", (e) => {
+    if (e.target.id === "refClearBtn") return;
+    $("materialFileInput").click();
+  });
+  $("materialFileInput").addEventListener("change", () => {
+    const f = $("materialFileInput").files?.[0];
+    if (f) uploadMaterialFile(f);
+    $("materialFileInput").value = "";
+  });
+
+  let dragCounter = 0;
+  window.addEventListener("dragenter", (e) => {
+    e.preventDefault();
+    dragCounter++;
+    $("dropOverlay").classList.remove("hidden");
+  });
+  window.addEventListener("dragover", (e) => e.preventDefault());
+  window.addEventListener("dragleave", () => {
+    dragCounter = Math.max(0, dragCounter - 1);
+    if (dragCounter === 0) $("dropOverlay").classList.add("hidden");
+  });
+  window.addEventListener("drop", (e) => {
+    e.preventDefault();
+    dragCounter = 0;
+    $("dropOverlay").classList.add("hidden");
+    const file = e.dataTransfer?.files?.[0];
+    if (file) {
+      const wp = screenToWorld(e.clientX, e.clientY);
+      uploadMaterialFile(file, wp);
+    }
+  });
+
+  function attachReferenceItem(item) {
+    state.refItem = item;
+    $("refThumb").src = item.local_url;
+    $("refEmpty").classList.add("hidden");
+    $("refFilled").classList.remove("hidden");
+    if (state.mode !== "video") setMode("video");
+    if ($("modelSelect").value === "wan2.1-1.3b") {
+      $("modelSelect").value = "ltx-video";
+      syncModelDefaults();
+    }
+    if (!$("promptInput").value.trim() && item.prompt && item.kind !== "material") {
+      $("promptInput").value = `${item.prompt}, smooth cinematic camera motion`;
+    }
+  }
+
+  function clearReferenceItem() {
+    state.refItem = null;
+    $("refFilled").classList.add("hidden");
+    $("refEmpty").classList.remove("hidden");
+  }
+  $("refClearBtn").addEventListener("click", (e) => {
+    e.stopPropagation();
+    clearReferenceItem();
+  });
+
+  function reusePrompt(item) {
+    $("promptInput").value = item.prompt || "";
+    $("promptInput").focus();
+    toast("已将提示词填入底部创作栏", "success");
+  }
+
+  // ==================== COMPOSER MODE & MODELS ====================
+  function setMode(mode) {
+    state.mode = mode;
+    document.querySelectorAll(".mode-btn").forEach((b) => b.classList.toggle("active", b.dataset.mode === mode));
+    $("durationSelect").classList.toggle("hidden", mode !== "video");
+    $("refSlot").classList.toggle("hidden", mode !== "video");
+
+    const sel = $("modelSelect");
+    sel.innerHTML = MODELS[mode].map((m) => `<option value="${m.id}">${m.label}</option>`).join("");
+    syncModelDefaults();
+  }
+
+  function syncModelDefaults() {
+    const m = MODELS[state.mode].find((x) => x.id === $("modelSelect").value) || MODELS[state.mode][0];
+    if (!m) return;
+    $("stepsInput").value = m.steps;
+    $("guidanceInput").value = m.guidance;
+  }
+
+  document.querySelectorAll(".mode-btn").forEach((b) => b.addEventListener("click", () => setMode(b.dataset.mode)));
+  $("modelSelect").addEventListener("change", syncModelDefaults);
+
+  // Welcome sample chips
+  document.querySelectorAll(".sample-chip[data-prompt]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      setMode(btn.dataset.mode);
+      $("promptInput").value = btn.dataset.prompt;
+      $("promptInput").focus();
+    });
+  });
+
+  // Advanced popover
+  $("advBtn").addEventListener("click", () => $("advPopover").classList.toggle("hidden"));
+  $("closeAdvBtn").addEventListener("click", () => $("advPopover").classList.add("hidden"));
+  $("autoStopInput").addEventListener("change", () => {
+    api("/api/settings", {
+      method: "POST",
+      body: JSON.stringify({ auto_stop_minutes: Number($("autoStopInput").value || 0) }),
+    }).then(() => refreshStatus(false));
+  });
+
+  // ==================== LIVE GPU & QUOTA HUD ====================
+  function renderStatus(snap) {
+    state.status = snap;
+    if (snap.preferred_gpu) $("preferredGpuSelect").value = snap.preferred_gpu;
+    if (snap.auto_stop_minutes != null) $("autoStopInput").value = snap.auto_stop_minutes;
+
+    // 1. Account button
+    const accBtn = $("accountBtn");
+    if (snap.authenticated) {
+      accBtn.textContent = snap.user_email ? snap.user_email.split("@")[0] : "已登录 Google";
+      accBtn.className = "hud-btn hud-btn-account";
+      accBtn.title = `已绑定 ${snap.user_email || "Google 账号"}（点击可重新授权）`;
+    } else {
+      accBtn.textContent = "登录 Google 账号";
+      accBtn.className = "hud-btn hud-btn-primary";
+    }
+
+    // 2. GPU Status & Toggle Button
+    const sess = snap.session || {};
+    const toggleBtn = $("toggleGpuBtn");
+    if (sess.active) {
+      $("gpuDot").className = "status-dot online";
+      const gpuLabel = sess.gpu_name_detail || `NVIDIA ${sess.accelerator || "GPU"}`;
+      const vramTxt = sess.vram_total_gb
+        ? `${sess.vram_used_gb ?? 0}/${sess.vram_total_gb}GB`
+        : sess.vram_label || "";
+      $("gpuStatusText").textContent = `${gpuLabel}${vramTxt ? ` · ${vramTxt}` : ""}`;
+      toggleBtn.textContent = "释放显卡";
+      toggleBtn.className = "hud-btn hud-btn-danger";
+      toggleBtn.disabled = Boolean(snap.active_job_id);
+    } else {
+      $("gpuDot").className = "status-dot offline";
+      $("gpuStatusText").textContent = snap.authenticated ? "待机 · 生成自动开机" : "未登录";
+      toggleBtn.textContent = "立即开机";
+      toggleBtn.className = "hud-btn hud-btn-ghost";
+      toggleBtn.disabled = !snap.authenticated;
+    }
+
+    // 3. Real Compute Units Balance & Remaining Hours
+    const u = snap.usage || {};
+    if (!snap.authenticated) {
+      $("quotaText").textContent = "登录后显示实时余额与时长";
+    } else if (u.balance_cu != null) {
+      const pref = $("preferredGpuSelect").value || "L4";
+      let hoursTxt = "";
+      if (u.remaining_hours_live != null) {
+        hoursTxt = `当前费率剩余约 ${u.remaining_hours_live} 小时`;
+      } else if (u.est_hours_by_gpu && u.est_hours_by_gpu[pref] != null) {
+        hoursTxt = `按 ${pref} 约可用 ${u.est_hours_by_gpu[pref]} 小时`;
+      }
+      $("quotaText").textContent = `⚡ ${u.balance_cu.toFixed(1)} 单元${hoursTxt ? ` · ${hoursTxt}` : ""}`;
+    } else {
+      $("quotaText").textContent = "已连接 · 等待同步余额";
+    }
+
+    // 4. Idle Auto-Stop Countdown
+    const autoPill = $("autoStopPill");
+    if (sess.active && !snap.active_job_id && snap.auto_stop_remaining_seconds != null) {
+      const m = Math.floor(snap.auto_stop_remaining_seconds / 60);
+      const s = snap.auto_stop_remaining_seconds % 60;
+      $("autoStopText").textContent = `${m}m${s < 10 ? "0" : ""}${s}s 后自动释放`;
+      autoPill.classList.remove("hidden");
+    } else {
+      autoPill.classList.add("hidden");
+    }
+  }
+
+  async function refreshStatus(force = false) {
     try {
-      const data = await api("/local/gallery");
-      const items = data.items || [];
-      $("galleryCount").textContent = String(items.length);
-      const grid = $("galleryGrid");
+      const snap = await api(`/api/status${force ? "?force=1" : ""}`);
+      renderStatus(snap);
+    } catch (_) {}
+  }
 
-      if (!items.length) {
-        grid.innerHTML = `
-          <div class="empty-state" style="grid-column:1/-1;">
-            <div class="empty-icon">📁</div>
-            <p>还没有本地作品，去生成第一张图片或视频吧！</p>
-          </div>`;
+  $("preferredGpuSelect").addEventListener("change", async () => {
+    const gpu = $("preferredGpuSelect").value;
+    await api("/api/settings", { method: "POST", body: JSON.stringify({ preferred_gpu: gpu }) });
+    if (state.status) renderStatus({ ...state.status, preferred_gpu: gpu });
+  });
+
+  $("toggleGpuBtn").addEventListener("click", async () => {
+    if (!state.status?.authenticated) return openAuthModal();
+    const isOnline = Boolean(state.status?.session?.active);
+    const btn = $("toggleGpuBtn");
+    btn.disabled = true;
+    try {
+      if (isOnline) {
+        btn.textContent = "释放中...";
+        const snap = await api("/api/gpu/stop", { method: "POST" });
+        renderStatus(snap);
+        toast("已释放云端 GPU，已停止计算单元扣费！", "success");
+      } else {
+        const gpu = $("preferredGpuSelect").value;
+        btn.textContent = "申请中...";
+        toast(`正在向 Colab 申请 ${gpu} 云端显卡...`);
+        const snap = await api("/api/gpu/start", { method: "POST", body: JSON.stringify({ gpu }) });
+        renderStatus(snap);
+        toast(`云端显卡已就绪：${snap.session?.accelerator || gpu}`, "success");
+      }
+    } catch (e) {
+      toast(e.message, "error");
+      refreshStatus(true);
+    } finally {
+      btn.disabled = false;
+    }
+  });
+
+  // ==================== IN-APP GOOGLE OAUTH FLOW ====================
+  function openAuthModal() {
+    $("oauthCodeInput").value = "";
+    $("authModal").classList.remove("hidden");
+  }
+  function closeAuthModal() {
+    $("authModal").classList.add("hidden");
+  }
+
+  $("accountBtn").addEventListener("click", openAuthModal);
+  $("closeAuthModalBtn").addEventListener("click", closeAuthModal);
+
+  $("startOauthBtn").addEventListener("click", async () => {
+    const btn = $("startOauthBtn");
+    btn.disabled = true;
+    btn.textContent = "正在生成授权链接...";
+    try {
+      const res = await api("/api/auth/start", { method: "POST" });
+      if (res.already_authenticated) {
+        closeAuthModal();
+        await refreshStatus(true);
+        toast(`已登录 ${res.email || "Google 账号"}`, "success");
+      } else if (res.auth_url) {
+        window.open(res.auth_url, "_blank");
+        toast("已在新标签页打开 Google 授权页，完成后请粘贴授权码", "success");
+        $("oauthCodeInput").focus();
+      }
+    } catch (e) {
+      toast(e.message, "error");
+    } finally {
+      btn.disabled = false;
+      btn.textContent = "🔐 打开 Google 官方授权页";
+    }
+  });
+
+  $("completeOauthBtn").addEventListener("click", async () => {
+    const code = $("oauthCodeInput").value.trim();
+    if (!code) return toast("请先粘贴 Google 授权码", "error");
+    const btn = $("completeOauthBtn");
+    btn.disabled = true;
+    btn.textContent = "验证中...";
+    try {
+      const res = await api("/api/auth/complete", {
+        method: "POST",
+        body: JSON.stringify({ code }),
+      });
+      closeAuthModal();
+      await refreshStatus(true);
+      toast(`绑定成功！欢迎 ${res.email || ""}`, "success");
+    } catch (e) {
+      toast(e.message, "error");
+    } finally {
+      btn.disabled = false;
+      btn.textContent = "完成绑定";
+    }
+  });
+
+  // ==================== GENERATE & LIVE PROGRESS POLLING ====================
+  async function submitGeneration() {
+    if (!state.status?.authenticated) {
+      openAuthModal();
+      return toast("请先完成一次 Google 账号绑定", "error");
+    }
+    const prompt = $("promptInput").value.trim();
+    if (!prompt) return toast("请输入画面提示词", "error");
+
+    const modelId = $("modelSelect").value;
+    const modelDef = MODELS[state.mode].find((m) => m.id === modelId);
+    const ratio = $("ratioSelect").value;
+    const [width, height] = RATIOS[state.mode][ratio] || [704, 480];
+
+    const payload = {
+      task: state.mode,
+      model_id: modelId,
+      gpu: $("preferredGpuSelect").value,
+      prompt,
+      negative_prompt: $("negPromptInput").value.trim(),
+      width,
+      height,
+      steps: Number($("stepsInput").value || modelDef?.steps || 25),
+      guidance_scale: Number($("guidanceInput").value ?? modelDef?.guidance ?? 3.5),
+      seed: Number($("seedInput").value ?? -1),
+      num_frames: Number($("durationSelect").value || 49),
+      fps: modelDef?.fps || 24,
+      parent_id: state.mode === "video" && modelDef?.supportsI2V && state.refItem ? state.refItem.id : null,
+    };
+
+    const btn = $("generateBtn");
+    btn.disabled = true;
+    $("generateBtnText").textContent = "渲染中…";
+
+    try {
+      const job = await api("/api/generate", {
+        method: "POST",
+        body: JSON.stringify(payload),
+      });
+      state.activeJobs.push(job);
+      renderCanvas();
+
+      // Smoothly pan toward the new card if it's the first one
+      if (state.items.length === 0) fitToView();
+
+      await pollJob(job.job_id);
+    } catch (e) {
+      toast(e.message, "error");
+    } finally {
+      btn.disabled = false;
+      $("generateBtnText").textContent = "生成";
+      refreshStatus(true);
+    }
+  }
+
+  async function pollJob(jobId) {
+    while (true) {
+      await new Promise((r) => setTimeout(r, 1200));
+      const job = await api(`/api/jobs/${jobId}`);
+      const idx = state.activeJobs.findIndex((j) => j.job_id === jobId);
+
+      if (job.status === "completed") {
+        if (idx >= 0) state.activeJobs.splice(idx, 1);
+        if (job.item) {
+          state.items.unshift(job.item);
+          selectNode(job.item.id);
+        }
+        renderCanvas();
+        toast("生成完成！成品已自动落入无限画布并保存到本地", "success");
         return;
       }
 
-      grid.innerHTML = "";
-      for (const item of items) {
-        const card = document.createElement("div");
-        card.className = "gallery-item";
-        const isVideo = item.task === "video" || item.filename.endsWith(".mp4");
-        const mediaHtml = isVideo
-          ? `<video src="${item.local_url}" controls muted loop playsinline></video>`
-          : `<img src="${item.local_url}" alt="Generated media" loading="lazy" />`;
-
-        card.innerHTML = `
-          <div class="gallery-media">${mediaHtml}</div>
-          <div class="gallery-info">
-            <div class="gallery-prompt" title="${(item.prompt || "").replace(/"/g, "&quot;")}">${item.prompt || "无提示词"}</div>
-            <div class="gallery-meta">
-              <span>${item.model_id || (isVideo ? "video" : "image")}</span>
-              <span>${(item.created_at || "").replace("T", " ").slice(5, 16)}</span>
-            </div>
-            <div class="gallery-actions">
-              ${!isVideo ? `<button class="btn btn-accent btn-xs i2v-btn">转图生视频</button>` : ""}
-              <a class="btn btn-secondary btn-xs" href="${item.local_url}" download="${item.filename}">下载</a>
-              <button class="btn btn-ghost btn-xs del-btn">删除</button>
-            </div>
-          </div>`;
-
-        const i2vBtn = card.querySelector(".i2v-btn");
-        if (i2vBtn) i2vBtn.addEventListener("click", () => useGalleryItemForVideo(item));
-        card.querySelector(".del-btn").addEventListener("click", async () => {
-          if (!confirm("确定从本地删除该文件吗？")) return;
-          await api(`/local/gallery/${item.id}`, { method: "DELETE" });
-          loadGallery();
-        });
-        grid.appendChild(card);
+      if (job.status === "failed") {
+        if (idx >= 0) state.activeJobs.splice(idx, 1);
+        renderCanvas();
+        toast(`生成失败：${job.error || "请检查显卡或参数"}`, "error");
+        return;
       }
-    } catch (e) {
-      toast(e.message, "error");
+
+      if (idx >= 0) {
+        state.activeJobs[idx] = job;
+        renderCanvas();
+      }
     }
   }
 
-  $("refreshGalleryBtn").addEventListener("click", loadGallery);
+  $("generateBtn").addEventListener("click", submitGeneration);
+  $("promptInput").addEventListener("keydown", (e) => {
+    if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
+      e.preventDefault();
+      submitGeneration();
+    }
+  });
 
-  // Init
-  async function init() {
-    try {
-      const cfg = await api("/local/config");
-      state.config = cfg;
-      $("comfyUrlInput").value = cfg.comfyui_url || "";
-    } catch (_) {}
-    await Promise.all([refreshStatus(), loadGallery()]);
-    setInterval(refreshStatus, 8000);
+  // ==================== CINEMA LIGHTBOX ====================
+  function openLightbox(item) {
+    state.lightboxItem = item;
+    const isVideo = item.kind === "video" || item.filename.endsWith(".mp4");
+    $("lbKindBadge").textContent = item.kind === "material" ? "参考素材" : isVideo ? "AI VIDEO" : "AI IMAGE";
+    $("lightboxMedia").innerHTML = isVideo
+      ? `<video src="${item.local_url}" controls autoplay loop playsinline></video>`
+      : `<img src="${item.local_url}" alt="Preview" />`;
+    $("lbPrompt").textContent = item.prompt || item.filename;
+    $("lbMeta").innerHTML = [
+      item.model_id ? `模型：${item.model_id}` : "",
+      item.gpu_name ? `渲染显卡：${item.gpu_name}` : "",
+      item.width && item.height ? `分辨率：${item.width} × ${item.height}` : "",
+      item.seed != null ? `随机种子：${item.seed}` : "",
+      item.elapsed_seconds ? `耗时：${item.elapsed_seconds}s` : "",
+      `本地文件：outputs/${item.filename}`,
+    ].filter(Boolean).join("<br/>");
+
+    $("lbDownloadLink").href = item.local_url;
+    $("lbDownloadLink").download = item.filename;
+    $("lbToVideoBtn").classList.toggle("hidden", isVideo);
+    $("lightboxModal").classList.remove("hidden");
   }
 
-  init();
+  function closeLightbox() {
+    $("lightboxModal").classList.add("hidden");
+    $("lightboxMedia").innerHTML = "";
+  }
+
+  $("closeLightboxBtn").addEventListener("click", closeLightbox);
+  $("lightboxModal").addEventListener("click", (e) => {
+    if (e.target === $("lightboxModal")) closeLightbox();
+  });
+  $("lbToVideoBtn").addEventListener("click", () => {
+    if (state.lightboxItem) {
+      attachReferenceItem(state.lightboxItem);
+      closeLightbox();
+    }
+  });
+  $("lbReusePromptBtn").addEventListener("click", () => {
+    if (state.lightboxItem) {
+      reusePrompt(state.lightboxItem);
+      closeLightbox();
+    }
+  });
+
+  // ==================== BOOT ====================
+  async function boot() {
+    setMode("video");
+    applyTransform();
+    try {
+      const canvas = await api("/api/canvas");
+      state.items = canvas.items || [];
+      state.activeJobs = canvas.active_jobs || [];
+      renderCanvas();
+      if (state.items.length > 0) fitToView();
+      for (const j of state.activeJobs) pollJob(j.job_id);
+    } catch (_) {}
+
+    await refreshStatus(true);
+    setInterval(() => refreshStatus(false), 12000);
+  }
+
+  boot();
 })();
