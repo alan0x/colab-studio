@@ -32,6 +32,8 @@ THIS_DIR = Path(__file__).resolve().parent
 if str(THIS_DIR) not in sys.path:
     sys.path.insert(0, str(THIS_DIR))
 
+from agent_engine import AgentEngine  # noqa: E402
+from agent_tools import ToolExecutor  # noqa: E402
 from colab_manager import ColabManager  # noqa: E402
 from drive_manager import DriveManager  # noqa: E402
 
@@ -56,6 +58,9 @@ def load_settings() -> dict[str, Any]:
         "preferred_gpu": "L4",
         "auto_stop_minutes": 10,
         "drive_sync_enabled": True,
+        "agent_model": "qwen3.8-27b",
+        "agent_workspace": str(DATA_DIR / "workspace"),
+        "agent_require_approval": True,
     }
     if CONFIG_PATH.exists():
         try:
@@ -69,7 +74,14 @@ def load_settings() -> dict[str, Any]:
 
 def save_settings(patch: dict[str, Any]) -> dict[str, Any]:
     cur = load_settings()
-    for key in ("preferred_gpu", "auto_stop_minutes", "drive_sync_enabled"):
+    for key in (
+        "preferred_gpu",
+        "auto_stop_minutes",
+        "drive_sync_enabled",
+        "agent_model",
+        "agent_workspace",
+        "agent_require_approval",
+    ):
         if key in patch:
             cur[key] = patch[key]
     CONFIG_PATH.write_text(json.dumps(cur, indent=2, ensure_ascii=False), encoding="utf-8")
@@ -108,6 +120,128 @@ def next_canvas_position(items: list[dict[str, Any]], parent_id: str | None = No
 
 COLAB = ColabManager(get_settings=load_settings)
 DRIVE = DriveManager(outputs_dir=OUTPUTS_DIR, get_settings=load_settings)
+
+
+def _run_canvas_generation_sync(
+    params: dict[str, Any],
+    on_progress: Any = None,
+) -> dict[str, Any]:
+    """Synchronous canvas generation bridge invoked by Agent tools."""
+    parent_id = params.get("parent_id")
+    init_image_local: Path | None = None
+    if parent_id:
+        for it in load_items():
+            if it.get("id") == parent_id:
+                cand = OUTPUTS_DIR / it["filename"]
+                if cand.exists():
+                    init_image_local = cand
+                break
+
+    with _STATE_LOCK:
+        items = load_items()
+        tx, ty = next_canvas_position(items, parent_id=parent_id)
+        job_id = uuid.uuid4().hex
+        _JOBS[job_id] = {
+            "job_id": job_id,
+            "task": params.get("task", "image"),
+            "model_id": params.get("model_id", "animagine-xl-4"),
+            "prompt": params.get("prompt", ""),
+            "parent_id": parent_id,
+            "x": tx,
+            "y": ty,
+            "status": "queued",
+            "stage": "Agent 正在调用云端画布引擎...",
+            "progress": 5,
+            "elapsed_seconds": 0.0,
+            "error": None,
+            "item": None,
+        }
+
+    t0 = time.time()
+    ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+    safe_model = re.sub(r"[^a-zA-Z0-9._-]+", "-", str(params.get("model_id", "media")))
+    out_stub = OUTPUTS_DIR / f"{ts}_{safe_model}_{job_id[:8]}"
+
+    def _on_upd(patch: dict[str, Any]) -> None:
+        with _STATE_LOCK:
+            if job_id in _JOBS:
+                _JOBS[job_id].update(patch)
+                _JOBS[job_id]["elapsed_seconds"] = round(time.time() - t0, 1)
+        if on_progress:
+            on_progress(patch)
+
+    try:
+        meta = COLAB.run_generation(
+            job_id=job_id,
+            params=params,
+            init_image_local=init_image_local,
+            output_local_path=out_stub,
+            on_update=_on_upd,
+        )
+        filename = meta["filename"]
+        file_path = OUTPUTS_DIR / filename
+        ext = meta.get("file_ext", "png")
+
+        drive_info: dict[str, Any] = {}
+        drive_sync_state = "local"
+        if DRIVE.is_enabled() and DRIVE.get_access_token():
+            try:
+                drive_info = DRIVE.upload_file(file_path, folder_kind="outputs")
+                drive_sync_state = "synced"
+            except Exception as de:
+                drive_sync_state = "error"
+                drive_info = {"drive_error": str(de)}
+
+        item = {
+            "id": job_id,
+            "kind": "video" if ext == "mp4" else "image",
+            "filename": filename,
+            "local_url": f"/outputs/{urllib.parse.quote(filename)}",
+            "model_id": params.get("model_id", ""),
+            "prompt": params.get("prompt", ""),
+            "negative_prompt": params.get("negative_prompt", ""),
+            "width": meta.get("width", params.get("width")),
+            "height": meta.get("height", params.get("height")),
+            "num_frames": params.get("num_frames"),
+            "steps": params.get("steps"),
+            "seed": meta.get("seed"),
+            "gpu_name": meta.get("gpu_name", ""),
+            "elapsed_seconds": meta.get("elapsed_seconds", round(time.time() - t0, 1)),
+            "parent_id": parent_id,
+            "x": tx,
+            "y": ty,
+            "size_bytes": file_path.stat().st_size if file_path.exists() else 0,
+            "drive_sync": drive_sync_state,
+            "drive_file_id": drive_info.get("drive_file_id"),
+            "drive_web_link": drive_info.get("drive_web_link"),
+            "created_at": datetime.now().isoformat(timespec="seconds"),
+        }
+        with _STATE_LOCK:
+            items = load_items()
+            items.insert(0, item)
+            save_items(items)
+            _JOBS[job_id].update({"status": "completed", "stage": "已完成", "progress": 100, "item": item})
+        if drive_sync_state == "synced":
+            threading.Thread(target=DRIVE.save_canvas_manifest, args=(items,), daemon=True).start()
+        return item
+    except Exception as e:
+        with _STATE_LOCK:
+            _JOBS[job_id].update({"status": "failed", "stage": "失败", "error": str(e)})
+        raise
+
+
+TOOL_EXECUTOR = ToolExecutor(
+    get_workspace_dir=lambda: Path(load_settings().get("agent_workspace") or str(DATA_DIR / "workspace")),
+    list_canvas_items=load_items,
+    run_canvas_generation=_run_canvas_generation_sync,
+)
+
+AGENT = AgentEngine(
+    data_dir=DATA_DIR,
+    colab_manager=COLAB,
+    tool_executor=TOOL_EXECUTOR,
+    get_settings=load_settings,
+)
 
 
 def _upload_item_to_drive_bg(item_id: str, filename: str, folder_kind: str) -> None:
@@ -316,7 +450,7 @@ class StudioHandler(BaseHTTPRequestHandler):
 
         if path == "/":
             return self.serve_file(STATIC_DIR / "index.html")
-        if path in ("/styles.css", "/app.js"):
+        if path in ("/styles.css", "/app.js", "/agent.js"):
             return self.serve_file(STATIC_DIR / path.lstrip("/"))
         if path.startswith("/outputs/"):
             fname = urllib.parse.unquote(path[len("/outputs/"):])
@@ -336,7 +470,45 @@ class StudioHandler(BaseHTTPRequestHandler):
             snap["active_jobs"] = active_jobs
             snap["outputs_dir"] = str(OUTPUTS_DIR)
             snap["drive"] = DRIVE.get_status(items)
+            snap["settings"] = load_settings()
             return self.send_json(200, snap)
+
+        if path == "/api/agent/sessions":
+            sessions = AGENT.list_sessions()
+            compact = [
+                {
+                    "id": s["id"],
+                    "title": s.get("title", "新对话"),
+                    "model_id": s.get("model_id", "qwen3.8-27b"),
+                    "updated_at": s.get("updated_at"),
+                    "message_count": len(s.get("messages", [])),
+                }
+                for s in sessions
+            ]
+            return self.send_json(200, {"sessions": compact, "settings": load_settings()})
+
+        if path.startswith("/api/agent/sessions/"):
+            sid = path[len("/api/agent/sessions/"):].strip("/")
+            sess = AGENT.get_session(sid)
+            if not sess:
+                return self.send_json(404, {"error": "会话不存在"})
+            return self.send_json(200, {"session": sess})
+
+        if path.startswith("/api/agent/stream/"):
+            run_id = path[len("/api/agent/stream/"):].strip("/")
+            self.send_response(HTTPStatus.OK)
+            self.send_header("Content-Type", "text/event-stream; charset=utf-8")
+            self.send_header("Cache-Control", "no-cache")
+            self.send_header("Connection", "close")
+            self.end_headers()
+            try:
+                for ev_type, ev_data in AGENT.iter_events(run_id):
+                    chunk = f"event: {ev_type}\ndata: {json.dumps(ev_data, ensure_ascii=False)}\n\n".encode("utf-8")
+                    self.wfile.write(chunk)
+                    self.wfile.flush()
+            except (BrokenPipeError, ConnectionResetError):
+                pass
+            return
 
         if path == "/api/canvas":
             with _STATE_LOCK:
@@ -396,6 +568,43 @@ class StudioHandler(BaseHTTPRequestHandler):
                     job["error"] = "任务已手动取消"
             COLAB.cancel_active_job()
             return self.send_json(200, {"ok": True, "cancelled": job_id})
+
+        if path == "/api/agent/sessions":
+            body = self.read_json()
+            sess = AGENT.create_session(
+                title=body.get("title", "新对话"),
+                model_id=body.get("model_id") or load_settings().get("agent_model", "qwen3.8-27b"),
+            )
+            return self.send_json(200, {"session": sess})
+
+        if path == "/api/agent/chat":
+            if not COLAB.authenticated:
+                COLAB.refresh_state(force=True)
+                if not COLAB.authenticated:
+                    return self.send_json(401, {"error": "请先点击右上角「登录 Google 账号」完成授权。"})
+            body = self.read_json()
+            model_id = body.get("model_id") or load_settings().get("agent_model", "qwen3.8-27b")
+            save_settings({"agent_model": model_id})
+            res = AGENT.start_run(
+                session_id=body.get("session_id"),
+                user_text=body.get("message", ""),
+                attachments=body.get("attachments") or [],
+                model_id=model_id,
+                thinking=bool(body.get("thinking", True)),
+                enabled_tools=body.get("enabled_tools") or {"canvas": True, "web": True, "local": True},
+                require_approval=bool(body.get("require_approval", load_settings().get("agent_require_approval", True))),
+            )
+            return self.send_json(200, res)
+
+        if path.startswith("/api/agent/runs/") and path.endswith("/stop"):
+            run_id = path[len("/api/agent/runs/"):-len("/stop")].strip("/")
+            AGENT.cancel_run(run_id)
+            return self.send_json(200, {"ok": True})
+
+        if path == "/api/agent/approve":
+            body = self.read_json()
+            ok = AGENT.resolve_approval(str(body.get("approval_id", "")), bool(body.get("approved", False)))
+            return self.send_json(200, {"ok": ok})
 
         if path == "/api/drive/sync":
             try:
@@ -609,6 +818,11 @@ class StudioHandler(BaseHTTPRequestHandler):
 
     def do_DELETE(self) -> None:
         path = urllib.parse.urlparse(self.path).path
+        if path.startswith("/api/agent/sessions/"):
+            sid = path[len("/api/agent/sessions/"):].strip("/")
+            if AGENT.delete_session(sid):
+                return self.send_json(200, {"ok": True})
+            return self.send_json(404, {"error": "会话不存在"})
         if path.startswith("/api/canvas/items/"):
             item_id = path[len("/api/canvas/items/"):].strip("/")
             drive_fid = None
