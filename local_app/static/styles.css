@@ -25,6 +25,7 @@
   --connector-color: rgba(244, 244, 245, 0.42);
   --toggle-off: #2e2e34;
   --toggle-knob-off: #a1a1aa;
+  --select-arrow: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%23a1a1aa' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E");
   --warn-text: #fde68a;
   --green: #22c55e;
   --amber: #eab308;
@@ -59,6 +60,7 @@
   --connector-color: rgba(28, 25, 23, 0.35);
   --toggle-off: #d6d1c6;
   --toggle-knob-off: #ffffff;
+  --select-arrow: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%2357534e' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E");
   --warn-text: #9a3412;
   --green: #16a34a;
   --amber: #b45309;
@@ -338,8 +340,27 @@ body.platform-macos .topbar {
   padding: 7px 9px;
   font-size: 12.5px;
   font-family: inherit;
+  line-height: 1.2;
   outline: none;
   user-select: text;
+}
+.field-select {
+  -webkit-appearance: none !important;
+  -moz-appearance: none !important;
+  appearance: none !important;
+  height: 32px;
+  line-height: 30px;
+  padding: 0 28px 0 10px;
+  background-image: var(--select-arrow);
+  background-repeat: no-repeat;
+  background-position: right 9px center;
+  background-size: 12px 12px;
+  cursor: pointer;
+}
+.field-select::picker-icon,
+.inline-select::picker-icon,
+.pill-select::picker-icon {
+  display: none;
 }
 .field-select:focus, .pop-field input:focus, .cfg-ws input:focus, .adv-field input:focus {
   border-color: rgba(255, 255, 255, 0.35);
@@ -884,28 +905,39 @@ body.platform-macos .topbar {
 }
 
 .inline-select {
+  -webkit-appearance: none !important;
+  -moz-appearance: none !important;
+  appearance: none !important;
   height: 28px;
-  max-width: 195px;
-  background: transparent;
+  max-width: 210px;
+  background-color: transparent;
+  background-image: var(--select-arrow);
+  background-repeat: no-repeat;
+  background-position: right 8px center;
+  background-size: 12px 12px;
   border: 1px solid var(--border);
   border-radius: 7px;
   color: var(--text-secondary);
-  padding: 0 8px;
+  padding: 0 26px 0 9px;
   font-size: 12px;
+  line-height: 26px;
   font-family: inherit;
+  vertical-align: middle;
   outline: none;
   cursor: pointer;
 }
-.inline-select:hover { background: var(--bg-hover); color: var(--text); }
+.inline-select:hover { background-color: var(--bg-hover); color: var(--text); }
 
 .chip-toggle {
   display: inline-flex;
   align-items: center;
+  justify-content: center;
   height: 28px;
-  padding: 0 9px;
+  padding: 0 10px;
   border-radius: 7px;
   border: 1px solid var(--border);
   font-size: 12px;
+  line-height: 1;
   color: var(--text-muted);
   cursor: pointer;
   transition: all 0.12s;
@@ -1220,27 +1252,49 @@ body.platform-macos .topbar {
   border: none;
   background: transparent;
   color: var(--text-muted);
+  height: 24px;
   font-size: 12px;
+  line-height: 1;
   font-weight: 500;
-  padding: 4px 10px;
+  padding: 0 10px;
   border-radius: 6px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   cursor: pointer;
 }
 .mode-btn.active { background: var(--bg-active); color: var(--text); }
 
 .pill-select, .pill-btn {
   height: 28px;
-  background: var(--bg-elevated);
+  background-color: var(--bg-elevated);
   border: 1px solid var(--border);
   color: var(--text-secondary);
   font-size: 12px;
+  line-height: 1;
   font-family: inherit;
-  padding: 0 9px;
+  padding: 0 10px;
   border-radius: 7px;
   cursor: pointer;
   outline: none;
 }
-.pill-select:hover, .pill-btn:hover { background: var(--bg-hover); color: var(--text); }
+.pill-select {
+  -webkit-appearance: none !important;
+  -moz-appearance: none !important;
+  appearance: none !important;
+  line-height: 26px;
+  padding: 0 26px 0 10px;
+  background-image: var(--select-arrow);
+  background-repeat: no-repeat;
+  background-position: right 8px center;
+  background-size: 12px 12px;
+}
+.pill-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.pill-select:hover, .pill-btn:hover { background-color: var(--bg-hover); color: var(--text); }
 
 .composer-main {
   display: flex;
