@@ -82,10 +82,42 @@ def _get_pipeline(model_id: str, has_init_image: bool, vram_total_gb: float):
 
     low_vram = vram_total_gb <= 18.5
 
-    if model_id == "flux-schnell":
+    if model_id == "realvis-xl":
+        from diffusers import StableDiffusionXLPipeline
+        repo = "SG161222/RealVisXL_V5.0"
+        try:
+            pipe = StableDiffusionXLPipeline.from_pretrained(
+                repo,
+                torch_dtype=torch.float16,
+                variant="fp16",
+                use_safetensors=True,
+            )
+        except Exception:
+            pipe = StableDiffusionXLPipeline.from_pretrained(
+                repo,
+                torch_dtype=torch.float16,
+                use_safetensors=True,
+            )
+        pipe.enable_model_cpu_offload()
+        pipe.enable_vae_tiling()
+
+    elif model_id == "z-image-turbo":
+        from diffusers import ZImagePipeline
+        pipe = ZImagePipeline.from_pretrained(
+            "Tongyi-MAI/Z-Image-Turbo",
+            torch_dtype=torch.bfloat16,
+        )
+        if low_vram:
+            pipe.enable_sequential_cpu_offload()
+        else:
+            pipe.enable_model_cpu_offload()
+        if hasattr(pipe, "vae") and hasattr(pipe.vae, "enable_tiling"):
+            pipe.vae.enable_tiling()
+
+    elif model_id in ("shuttle-3.1", "flux-schnell"):
         from diffusers import FluxPipeline
         pipe = FluxPipeline.from_pretrained(
-            "black-forest-labs/FLUX.1-schnell",
+            "shuttleai/shuttle-3.1-aesthetic",
             torch_dtype=torch.bfloat16,
         )
         if low_vram:
@@ -209,6 +241,7 @@ def _main():
     )
 
     if task == "image":
+        call_params = inspect.signature(pipe.__call__).parameters
         kwargs = dict(
             prompt=prompt,
             width=width,
@@ -216,9 +249,10 @@ def _main():
             num_inference_steps=total_steps,
             guidance_scale=guidance,
             generator=gen,
-            callback_on_step_end=step_callback,
         )
-        if model_id == "sdxl-base" and negative_prompt:
+        if "callback_on_step_end" in call_params:
+            kwargs["callback_on_step_end"] = step_callback
+        if model_id in ("realvis-xl", "sdxl-base") and negative_prompt and "negative_prompt" in call_params:
             kwargs["negative_prompt"] = negative_prompt
         image = pipe(**kwargs).images[0]
         out_path = f"{remote_output_base}.png"

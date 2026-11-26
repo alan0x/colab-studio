@@ -8,8 +8,10 @@
       { id: "wan2.1-1.3b", label: "阿里 Wan 2.1 1.3B · 轻量文生视频 (T4/L4)", steps: 30, guidance: 5.0, fps: 16, supportsI2V: false },
     ],
     image: [
-      { id: "flux-schnell", label: "FLUX.1-schnell · 4步极速高清", steps: 4, guidance: 0, supportsI2V: false },
-      { id: "sdxl-base", label: "SDXL 1.0 Base · 经典高质", steps: 25, guidance: 7.5, supportsI2V: false },
+      { id: "realvis-xl", label: "RealVisXL V5.0 · 电影写实首选 (T4/L4秒出)", steps: 25, guidance: 5.5, supportsI2V: false },
+      { id: "z-image-turbo", label: "阿里 Z-Image Turbo · 9步中英双语 SOTA", steps: 9, guidance: 0.0, supportsI2V: false },
+      { id: "shuttle-3.1", label: "Shuttle 3.1 (FLUX架构) · 4步美学 (L4/高内存推荐)", steps: 4, guidance: 0.0, supportsI2V: false },
+      { id: "sdxl-base", label: "SDXL 1.0 Base · 经典稳定", steps: 25, guidance: 7.5, supportsI2V: false },
     ],
   };
 

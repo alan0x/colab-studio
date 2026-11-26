@@ -404,10 +404,16 @@ class ColabManager:
                 msg = f"正在向 Google Colab 申请 {gpu} 云端显卡..." if idx == 0 else f"{candidates[idx-1]} 暂不可用，自动降级申请 {gpu} 显卡..."
                 progress_cb(msg, 4 + idx * 2)
 
-            args = ["new", "-s", SESSION_NAME, "--gpu", gpu]
-            if gpu == "A100":
-                args.append("--high-mem")
-            rc, out, err = self._run(args, timeout=75.0)
+            arg_variants = [["new", "-s", SESSION_NAME, "--gpu", gpu]]
+            if gpu in ("A100", "T4"):
+                arg_variants.insert(0, ["new", "-s", SESSION_NAME, "--gpu", gpu, "--high-mem"])
+
+            rc = 1
+            out, err = "", ""
+            for args in arg_variants:
+                rc, out, err = self._run(args, timeout=75.0)
+                if rc == 0:
+                    break
             if rc == 0:
                 self.last_activity_at = time.time()
                 self._bootstrapped_endpoint = None
