@@ -10,9 +10,12 @@ __pycache__/
 *.py[cod]
 .DS_Store
 
-# Built macOS app bundles & installers
+# Built macOS & Windows app bundles & installers
 dist/
+build/
+*.spec
 *.iconset/
 *.icns
+*.ico
 *.dmg
 *.sha256

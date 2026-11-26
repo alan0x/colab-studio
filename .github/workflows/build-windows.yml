@@ -1,0 +1,135 @@
+name: Build & Release Windows App
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: "GitHub Release tag to attach Windows binaries to (e.g. v1.0.0)"
+        required: true
+        default: "v1.0.0"
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Resolve version and release tag
+        id: meta
+        shell: pwsh
+        run: |
+          if ("${{ github.event_name }}" -eq "workflow_dispatch") {
+            $tag = "${{ inputs.release_tag }}"
+          } else {
+            $tag = "${{ github.ref_name }}"
+          }
+          $ver = $tag.TrimStart("v")
+          echo "tag=$tag" >> $env:GITHUB_OUTPUT
+          echo "version=$ver" >> $env:GITHUB_OUTPUT
+          Write-Host "Building Windows release for tag=$tag version=$ver"
+
+      - name: Install build dependencies and google-colab-cli
+        shell: pwsh
+        run: |
+          python -m pip install --upgrade pip
+          pip install google-colab-cli pywebview pyinstaller pillow
+
+      - name: Generate Windows AppIcon.ico
+        shell: pwsh
+        run: |
+          python windows/gen_icon.py windows/AppIcon.ico
+
+      - name: Build standalone Windows desktop app with PyInstaller
+        shell: pwsh
+        run: |
+          pyinstaller `
+            --noconfirm `
+            --clean `
+            --onedir `
+            --windowed `
+            --name "Colab Canvas Studio" `
+            --icon "windows/AppIcon.ico" `
+            --add-data "local_app/static;local_app/static" `
+            --add-data "local_app/remote_worker.py;local_app" `
+            --paths "local_app" `
+            --hidden-import "server" `
+            --hidden-import "colab_manager" `
+            --hidden-import "drive_manager" `
+            --hidden-import "colab_cli.cli" `
+            --hidden-import "colab_cli.auth" `
+            --collect-data "colab_cli" `
+            --collect-submodules "colab_cli" `
+            --collect-submodules "keyring.backends" `
+            --collect-submodules "webview" `
+            windows/studio_win.py
+
+      - name: Smoke test built Windows .exe (CLI + OAuth + Local Server)
+        shell: pwsh
+        run: |
+          $exe = "dist\Colab Canvas Studio\Colab Canvas Studio.exe"
+          if (-not (Test-Path $exe)) { throw "Built exe not found: $exe" }
+
+          Write-Host "1) Testing bundled colab CLI --help..."
+          $p1 = Start-Process -FilePath $exe -ArgumentList "--colab-cli", "--help" -NoNewWindow -Wait -PassThru
+          if ($p1.ExitCode -ne 0) { throw "colab-cli --help exited with $($p1.ExitCode)" }
+
+          Write-Host "2) Testing full headless server + OAuth start..."
+          $p2 = Start-Process -FilePath $exe -ArgumentList "--headless-test" -NoNewWindow -Wait -PassThru
+          if ($p2.ExitCode -ne 0) { throw "headless smoke test exited with $($p2.ExitCode)" }
+          Write-Host "Windows smoke tests passed!"
+
+      - name: Build Windows Setup Installer (.exe) via Inno Setup
+        shell: pwsh
+        run: |
+          $ver = "${{ steps.meta.outputs.version }}"
+          & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" "/DMyAppVersion=$ver" "windows\installer.iss"
+
+      - name: Package Portable ZIP and generate SHA256 checksums
+        shell: pwsh
+        run: |
+          $ver = "${{ steps.meta.outputs.version }}"
+          $zipPath = "dist\Colab-Canvas-Studio-v$ver-Windows-x64-Portable.zip"
+          $setupPath = "dist\Colab-Canvas-Studio-v$ver-Windows-x64-Setup.exe"
+
+          Compress-Archive -Path "dist\Colab Canvas Studio\*" -DestinationPath $zipPath -Force
+
+          foreach ($f in @($setupPath, $zipPath)) {
+            $hash = (Get-FileHash -Path $f -Algorithm SHA256).Hash.ToLower()
+            $name = Split-Path $f -Leaf
+            "$hash  $name" | Out-File -FilePath "$f.sha256" -Encoding ascii -NoNewline
+          }
+          Get-ChildItem dist\*.exe, dist\*.zip, dist\*.sha256 | Format-Table Name, Length
+
+      - name: Upload Windows installers to GitHub Release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $tag = "${{ steps.meta.outputs.tag }}"
+          $ver = "${{ steps.meta.outputs.version }}"
+          $files = @(
+            "dist\Colab-Canvas-Studio-v$ver-Windows-x64-Setup.exe",
+            "dist\Colab-Canvas-Studio-v$ver-Windows-x64-Setup.exe.sha256",
+            "dist\Colab-Canvas-Studio-v$ver-Windows-x64-Portable.zip",
+            "dist\Colab-Canvas-Studio-v$ver-Windows-x64-Portable.zip.sha256"
+          )
+
+          # Create release if tag does not have one yet, otherwise upload directly with --clobber
+          gh release view $tag 2>$null
+          if ($LASTEXITCODE -ne 0) {
+            gh release create $tag @files --title "Colab Canvas Studio $tag" --notes "macOS & Windows desktop installers for Colab Canvas Studio."
+          } else {
+            gh release upload $tag @files --clobber
+          }

@@ -25,9 +25,17 @@
 
 ---
 
-## 下载安装（macOS 独立桌面 App）
+## 下载安装（macOS & Windows 独立桌面 App）
 
-前往 [GitHub Releases](https://github.com/alan0x/colab-media-studio/releases/latest) 下载最新的 `.dmg` 安装包（例如 `Colab-Canvas-Studio-v1.0.0-macOS-arm64.dmg`）：
+前往 [GitHub Releases](https://github.com/alan0x/colab-media-studio/releases/latest) 下载对应系统的安装包：
+
+### Windows 10 / 11（免配环境 · 开箱即用）
+- **推荐安装版**：下载 `Colab-Canvas-Studio-v1.0.0-Windows-x64-Setup.exe`，双击一路下一步即可安装（内置 Python、WebView2 桌面窗口与 `google-colab-cli`，**无需安装 Python 或命令行工具**）。
+- **绿色便携版**：下载 `Colab-Canvas-Studio-v1.0.0-Windows-x64-Portable.zip`，解压后直接运行 `Colab Canvas Studio.exe`。
+- 打开后点击右上角 **「登录 Google 账号」** 完成一次授权即可开始创作，所有作品默认保存在 `文档\ColabCanvasStudio\outputs` 并自动同步至 Google Drive。
+
+### macOS（Apple Silicon）
+下载 `Colab-Canvas-Studio-v1.0.0-macOS-arm64.dmg`：
 
 1. 打开 `.dmg`，将 **Colab Canvas Studio.app** 拖入 **Applications** 文件夹。
 2. 安装 Google 官方 Colab CLI（仅需一次）：
@@ -41,7 +49,7 @@
    ```
 4. 打开 **Colab Canvas Studio**，点击右上角 **「登录 Google 账号」** 完成一次授权，即可直接拖入素材、输入提示词生成图片与视频！
 
-### 从源码自行构建 `.app` 和 `.dmg`
+### 从源码自行构建 macOS `.app` 和 `.dmg`
 ```bash
 ./scripts/build_mac_app.sh 1.0.0
 ```
