@@ -16,7 +16,9 @@ from __future__ import annotations
 
 import json
 import mimetypes
+import os
 import subprocess
+import sys
 import threading
 import time
 import urllib.error
@@ -31,6 +33,7 @@ DRIVE_API = "https://www.googleapis.com/drive/v3"
 DRIVE_UPLOAD_API = "https://www.googleapis.com/upload/drive/v3"
 FOLDER_MIME = "application/vnd.google-apps.folder"
 ROOT_FOLDER_NAME = "ColabCanvasStudio"
+_SUBPROC_FLAGS = subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0
 
 _TOKEN_HELPER_CODE = r"""
 import json, sys
@@ -53,7 +56,46 @@ print(json.dumps({"token": creds.token, "expiry": exp, "scopes": list(creds.scop
 """
 
 
+def _get_token_in_process() -> Optional[tuple[str, float]]:
+    """Fast path when `colab_cli` is installed/bundled in the current Python runtime."""
+    try:
+        from colab_cli import auth
+        from google.auth.transport.requests import Request
+        from google.oauth2.credentials import Credentials
+
+        raw = auth._get_token_from_keyring()
+        if not raw:
+            return None
+        creds = Credentials.from_authorized_user_info(json.loads(raw), auth.PUBLIC_SCOPES)
+        if not creds.valid:
+            if creds.expired and creds.refresh_token:
+                creds.refresh(Request())
+                auth._save_token_to_keyring(creds.to_json())
+            else:
+                return None
+        if not creds.token:
+            return None
+        exp = creds.expiry.timestamp() if creds.expiry else 0.0
+        return creds.token, exp
+    except Exception:
+        return None
+
+
 def _find_colab_python() -> Optional[str]:
+    if sys.platform == "win32":
+        candidates = [
+            Path(sys.executable).parent / "python.exe",
+        ]
+        for base_env in ("APPDATA", "LOCALAPPDATA"):
+            base_dir = os.environ.get(base_env)
+            if base_dir:
+                candidates.append(Path(base_dir) / "uv/tools/google-colab-cli/Scripts/python.exe")
+        candidates.append(Path.home() / ".local/share/uv/tools/google-colab-cli/Scripts/python.exe")
+        for c in candidates:
+            if c.exists():
+                return str(c)
+        return None
+
     colab_bin = find_colab_bin()
     if not colab_bin:
         return None
@@ -98,6 +140,16 @@ class DriveManager:
             if not force_refresh and self._token and (self._token_expiry == 0 or now < self._token_expiry - 120):
                 return self._token
 
+        # 1. Try direct in-process keyring token (used in bundled Windows app & shared venvs)
+        in_proc = _get_token_in_process()
+        if in_proc:
+            tok, exp = in_proc
+            with self._lock:
+                self._token = tok
+                self._token_expiry = exp if exp > time.time() else (time.time() + 2400)
+            return tok
+
+        # 2. Fallback to colab-cli's Python interpreter (e.g. uv tool isolated env on macOS/Linux)
         py = _find_colab_python()
         if not py:
             return None
@@ -108,7 +160,10 @@ class DriveManager:
                 stdin=subprocess.DEVNULL,
                 capture_output=True,
                 text=True,
+                encoding="utf-8",
+                errors="replace",
                 timeout=20.0,
+                creationflags=_SUBPROC_FLAGS,
             )
             if proc.returncode != 0:
                 return None

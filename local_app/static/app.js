@@ -748,8 +748,10 @@
         await refreshStatus(true);
         toast(`已登录 ${res.email || "Google 账号"}`, "success");
       } else if (res.auth_url) {
-        window.open(res.auth_url, "_blank");
-        toast("已在新标签页打开 Google 授权页，完成后请粘贴授权码", "success");
+        api("/api/open-url", { method: "POST", body: JSON.stringify({ url: res.auth_url }) }).catch(() => {
+          window.open(res.auth_url, "_blank");
+        });
+        toast("已在系统默认浏览器打开 Google 授权页，完成后请粘贴授权码", "success");
         $("oauthCodeInput").focus();
       }
     } catch (e) {
@@ -939,6 +941,9 @@
 
   // ==================== BOOT ====================
   async function boot() {
+    if (new URLSearchParams(window.location.search).get("platform") === "macos") {
+      document.body.classList.add("platform-macos");
+    }
     setMode("video");
     applyTransform();
     try {

@@ -16,13 +16,25 @@ import os
 import re
 import shutil
 import subprocess
+import sys
 import threading
 import time
 from pathlib import Path
 from typing import Any, Callable, Optional
 
 SESSION_NAME = "studio"
-REMOTE_WORKER_PATH = Path(__file__).resolve().parent / "remote_worker.py"
+
+
+def _resolve_remote_worker() -> Path:
+    if getattr(sys, "frozen", False) and hasattr(sys, "_MEIPASS"):
+        cand = Path(sys._MEIPASS) / "local_app" / "remote_worker.py"
+        if cand.exists():
+            return cand
+    return Path(__file__).resolve().parent / "remote_worker.py"
+
+
+REMOTE_WORKER_PATH = _resolve_remote_worker()
+_SUBPROC_FLAGS = subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0
 
 GPU_EST_RATES = {
     "T4": 1.2,
@@ -45,27 +57,60 @@ def find_colab_bin() -> Optional[str]:
     found = shutil.which("colab")
     if found:
         return found
-    candidates = [
-        Path.home() / ".local/bin/colab",
-        Path("/opt/homebrew/bin/colab"),
-        Path("/usr/local/bin/colab"),
-    ]
+    if sys.platform == "win32":
+        candidates = [
+            Path.home() / ".local/bin/colab.exe",
+            Path(sys.executable).parent / "colab.exe",
+            Path(sys.executable).parent / "Scripts/colab.exe",
+        ]
+        for base_env in ("APPDATA", "LOCALAPPDATA"):
+            base_dir = os.environ.get(base_env)
+            if base_dir:
+                candidates.append(Path(base_dir) / "uv/tools/google-colab-cli/Scripts/colab.exe")
+    else:
+        candidates = [
+            Path.home() / ".local/bin/colab",
+            Path("/opt/homebrew/bin/colab"),
+            Path("/usr/local/bin/colab"),
+        ]
     for c in candidates:
         if c.exists() and os.access(c, os.X_OK):
             return str(c)
     return None
 
 
+def find_colab_cmd() -> Optional[list[str]]:
+    raw_cmd = os.environ.get("COLAB_CLI_CMD_JSON")
+    if raw_cmd:
+        try:
+            parsed = json.loads(raw_cmd)
+            if isinstance(parsed, list) and parsed:
+                return [str(x) for x in parsed]
+        except Exception:
+            pass
+    colab_bin = find_colab_bin()
+    return [colab_bin] if colab_bin else None
+
+
 def _clean_env() -> dict[str, str]:
     env = os.environ.copy()
-    extra_paths = [
-        str(Path.home() / ".local/bin"),
-        "/opt/homebrew/bin",
-        "/usr/local/bin",
-    ]
-    env["PATH"] = ":".join(extra_paths + [env.get("PATH", "")])
+    if sys.platform == "win32":
+        extra_paths = [
+            str(Path.home() / ".local" / "bin"),
+            str(Path(sys.executable).parent),
+            str(Path(sys.executable).parent / "Scripts"),
+        ]
+    else:
+        extra_paths = [
+            str(Path.home() / ".local/bin"),
+            "/opt/homebrew/bin",
+            "/usr/local/bin",
+        ]
+    env["PATH"] = os.pathsep.join(extra_paths + [env.get("PATH", "")])
     env["NO_COLOR"] = "1"
     env["TERM"] = "dumb"
+    env["PYTHONUTF8"] = "1"
+    env["PYTHONIOENCODING"] = "utf-8"
     return env
 
 
@@ -119,18 +164,21 @@ class ColabManager:
         timeout: float = 20.0,
         stdin_devnull: bool = True,
     ) -> tuple[int, str, str]:
-        colab_bin = find_colab_bin()
-        if not colab_bin:
+        colab_cmd = find_colab_cmd()
+        if not colab_cmd:
             return 127, "", "未检测到 google-colab-cli，请在终端运行 `uv tool install google-colab-cli`。"
-        cmd = [colab_bin, "--auth=oauth2", *args]
+        cmd = [*colab_cmd, "--auth=oauth2", *args]
         try:
             proc = subprocess.run(
                 cmd,
                 stdin=subprocess.DEVNULL if stdin_devnull else None,
                 capture_output=True,
                 text=True,
+                encoding="utf-8",
+                errors="replace",
                 timeout=timeout,
                 env=_clean_env(),
+                creationflags=_SUBPROC_FLAGS,
             )
             return proc.returncode, _strip_ansi(proc.stdout or ""), _strip_ansi(proc.stderr or "")
         except subprocess.TimeoutExpired:
@@ -142,20 +190,23 @@ class ColabManager:
     # In-App Google OAuth2 Sign-In
     # --------------------------------------------------------
     def start_oauth_login(self) -> dict[str, Any]:
-        colab_bin = find_colab_bin()
-        if not colab_bin:
+        colab_cmd = find_colab_cmd()
+        if not colab_cmd:
             raise RuntimeError("未检测到 google-colab-cli，请先安装。")
 
         with self._lock:
             self._cleanup_oauth_proc()
             proc = subprocess.Popen(
-                [colab_bin, "--auth=oauth2", "whoami"],
+                [*colab_cmd, "--auth=oauth2", "whoami"],
                 stdin=subprocess.PIPE,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
                 text=True,
+                encoding="utf-8",
+                errors="replace",
                 bufsize=1,
                 env=_clean_env(),
+                creationflags=_SUBPROC_FLAGS,
             )
             self._oauth_proc = proc
             self._oauth_url = None
@@ -245,8 +296,8 @@ class ColabManager:
         if not force and (now - self.last_refresh_at) < 4.0:
             return self.get_snapshot()
 
-        colab_bin = find_colab_bin()
-        if not colab_bin:
+        colab_cmd = find_colab_cmd()
+        if not colab_cmd:
             self.authenticated = False
             self.last_error = "未安装 google-colab-cli"
             return self.get_snapshot()
@@ -363,7 +414,7 @@ class ColabManager:
                 auto_stop_remaining = max(0, int(auto_stop_min * 60 - idle_sec))
 
         return {
-            "cli_installed": find_colab_bin() is not None,
+            "cli_installed": find_colab_cmd() is not None,
             "authenticated": self.authenticated,
             "user_email": self.user_email,
             "usage": self.usage,
@@ -490,17 +541,20 @@ class ColabManager:
         self._bootstrapped_endpoint = ep
 
     def _exec_inline(self, code: str, timeout: float = 45.0) -> tuple[int, str, str]:
-        colab_bin = find_colab_bin()
-        if not colab_bin:
+        colab_cmd = find_colab_cmd()
+        if not colab_cmd:
             return 127, "", "colab CLI 未安装"
         try:
             proc = subprocess.run(
-                [colab_bin, "--auth=oauth2", "exec", "-s", SESSION_NAME, "--timeout", str(timeout)],
+                [*colab_cmd, "--auth=oauth2", "exec", "-s", SESSION_NAME, "--timeout", str(timeout)],
                 input=code,
                 capture_output=True,
                 text=True,
+                encoding="utf-8",
+                errors="replace",
                 timeout=timeout + 15.0,
                 env=_clean_env(),
+                creationflags=_SUBPROC_FLAGS,
             )
             return proc.returncode, _strip_ansi(proc.stdout or ""), _strip_ansi(proc.stderr or "")
         except Exception as e:
@@ -574,10 +628,10 @@ class ColabManager:
                 }
                 payload_b64 = base64.b64encode(json.dumps(job_payload).encode("utf-8")).decode("ascii")
 
-                colab_bin = find_colab_bin()
-                assert colab_bin is not None
+                colab_cmd = find_colab_cmd()
+                assert colab_cmd is not None
                 cmd = [
-                    colab_bin,
+                    *colab_cmd,
                     "--auth=oauth2",
                     "exec",
                     "-s",
@@ -597,8 +651,11 @@ class ColabManager:
                     stdout=subprocess.PIPE,
                     stderr=subprocess.PIPE,
                     text=True,
+                    encoding="utf-8",
+                    errors="replace",
                     bufsize=1,
                     env=_clean_env(),
+                    creationflags=_SUBPROC_FLAGS,
                 )
                 self._active_proc = proc
 

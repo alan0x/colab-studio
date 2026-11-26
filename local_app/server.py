@@ -37,7 +37,10 @@ from drive_manager import DriveManager  # noqa: E402
 
 ROOT_DIR = THIS_DIR.parent
 DATA_DIR = Path(os.environ.get("STUDIO_DATA_DIR", str(ROOT_DIR))).expanduser().resolve()
-STATIC_DIR = THIS_DIR / "static"
+if getattr(sys, "frozen", False) and hasattr(sys, "_MEIPASS"):
+    STATIC_DIR = Path(sys._MEIPASS) / "local_app" / "static"
+else:
+    STATIC_DIR = THIS_DIR / "static"
 OUTPUTS_DIR = DATA_DIR / "outputs"
 CONFIG_PATH = DATA_DIR / "config.json"
 HISTORY_PATH = OUTPUTS_DIR / "history.json"
@@ -560,9 +563,22 @@ class StudioHandler(BaseHTTPRequestHandler):
             try:
                 if sys.platform == "darwin":
                     subprocess.Popen(["open", str(OUTPUTS_DIR)])
+                elif sys.platform == "win32":
+                    os.startfile(str(OUTPUTS_DIR))  # type: ignore[attr-defined]
                 elif sys.platform.startswith("linux"):
                     subprocess.Popen(["xdg-open", str(OUTPUTS_DIR)])
                 return self.send_json(200, {"ok": True, "path": str(OUTPUTS_DIR)})
+            except Exception as e:
+                return self.send_json(500, {"error": str(e)})
+
+        if path == "/api/open-url":
+            try:
+                body = self.read_json()
+                url = str(body.get("url", "")).strip()
+                if not url.startswith(("https://", "http://")):
+                    return self.send_json(400, {"error": "Invalid URL"})
+                webbrowser.open(url)
+                return self.send_json(200, {"ok": True})
             except Exception as e:
                 return self.send_json(500, {"error": str(e)})
 

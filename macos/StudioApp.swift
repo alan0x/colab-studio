@@ -210,7 +210,7 @@ final class StudioAppDelegate: NSObject, NSApplicationDelegate, WKUIDelegate, WK
             return
         }
 
-        let targetURL = URL(string: "http://127.0.0.1:\(serverPort)/")!
+        let targetURL = URL(string: "http://127.0.0.1:\(serverPort)/?platform=macos")!
         let probeURL = URL(string: "http://127.0.0.1:\(serverPort)/api/canvas")!
 
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in

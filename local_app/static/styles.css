@@ -398,7 +398,7 @@ html, body {
 .hud-top {
   position: fixed;
   top: 12px;
-  left: 86px;
+  left: 16px;
   right: 16px;
   z-index: 40;
   display: flex;
@@ -406,6 +406,10 @@ html, body {
   justify-content: space-between;
   gap: 12px;
   pointer-events: none;
+}
+
+body.platform-macos .hud-top {
+  left: 86px;
 }
 
 .hud-capsule {
