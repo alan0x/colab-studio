@@ -1,0 +1,408 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Colab Media Studio — 云端算力本地创作台</title>
+  <link rel="stylesheet" href="/styles.css" />
+</head>
+<body>
+  <div class="app-shell">
+    <!-- Top Bar: Connection + Live GPU & Compute Unit Monitor -->
+    <header class="topbar">
+      <div class="brand">
+        <div class="brand-logo">⚡</div>
+        <div>
+          <h1>Colab Media Studio</h1>
+          <p class="subtitle">用本地 App 驾驭你的 Google Colab GPU（生图 · 生视频 · 省单元守护）</p>
+        </div>
+      </div>
+
+      <div class="telemetry-bar" id="telemetryBar">
+        <div class="pill status-pill offline" id="statusPill">
+          <span class="dot"></span>
+          <span id="statusText">未连接 Colab</span>
+        </div>
+        <div class="metric-chip" id="gpuChip" title="当前分配的云端显卡与显存">
+          <span class="label">GPU</span>
+          <span class="value" id="gpuValue">--</span>
+        </div>
+        <div class="metric-chip" id="unitChip" title="本次会话预计已消耗的 Colab 计算单元">
+          <span class="label">本次预计消耗</span>
+          <span class="value" id="unitValue">0.00 CU</span>
+        </div>
+        <div class="metric-chip" id="uptimeChip" title="云端运行时已连接时长">
+          <span class="label">已运行</span>
+          <span class="value" id="uptimeValue">--</span>
+        </div>
+        <button class="btn btn-secondary btn-sm" id="connectModalBtn">连接设置</button>
+        <button class="btn btn-danger btn-sm" id="shutdownBtn" disabled title="立即远程断开并删除 Colab 运行时，停止扣减计算单元">
+          释放算力
+        </button>
+      </div>
+    </header>
+
+    <!-- Idle Compute-Unit Saver Alert -->
+    <div class="idle-banner hidden" id="idleBanner">
+      <div>
+        <strong>省单元提醒：</strong>你的 Colab GPU 已空闲 <span id="idleMinutesText">10</span> 分钟，仍在按小时消耗计算单元。如果暂时不用，建议立即释放算力！
+      </div>
+      <div class="idle-actions">
+        <button class="btn btn-danger btn-sm" id="idleShutdownBtn">立即释放算力</button>
+        <button class="btn btn-ghost btn-sm" id="dismissIdleBtn">稍后再说</button>
+      </div>
+    </div>
+
+    <!-- Navigation Tabs -->
+    <nav class="tabs">
+      <button class="tab active" data-tab="image">🎨 文生图（FLUX / SDXL）</button>
+      <button class="tab" data-tab="video">🎬 生成视频（文生 / 图生）</button>
+      <button class="tab" data-tab="minimax">🐚 MiniMax-H3（海螺 3 专区）</button>
+      <button class="tab" data-tab="gallery">🗂️ 本地作品库 <span class="badge" id="galleryCount">0</span></button>
+      <button class="tab" data-tab="guide">📘 快速上手与省单元指南</button>
+    </nav>
+
+    <main class="main-content">
+      <!-- TAB 1: IMAGE GENERATION -->
+      <section class="panel active" id="tab-image">
+        <div class="workspace-grid">
+          <div class="card form-card">
+            <div class="card-header">
+              <h2>图片生成参数</h2>
+              <button class="btn btn-ghost btn-xs" id="unloadGpuBtn1" title="切换模型前可手动释放显存">清理显存</button>
+            </div>
+
+            <div class="field">
+              <label for="imgModel">选择模型</label>
+              <select id="imgModel">
+                <option value="flux-schnell">FLUX.1-schnell（4步极速 · 画质极佳 · T4/L4/A100全适配）</option>
+                <option value="sdxl-base">SDXL 1.0 Base（经典高质 · 显存占用低 · T4流畅）</option>
+              </select>
+              <div class="hint" id="imgModelHint">Apache 2.0 免费开源，无需 Token，4 步即可出高清图，非常省计算单元。</div>
+            </div>
+
+            <div class="field">
+              <label for="imgPrompt">提示词（Prompt，推荐英文或中英结合效果更稳）</label>
+              <textarea id="imgPrompt" rows="4" placeholder="例如：A cinematic wide shot of a cyberpunk Tokyo street at rainy night, neon reflections on wet asphalt, ultra detailed, 8k, photorealistic"></textarea>
+            </div>
+
+            <div class="field" id="imgNegField">
+              <label for="imgNegative">反向提示词（Negative Prompt，SDXL 生效）</label>
+              <input id="imgNegative" type="text" value="low quality, blurry, watermark, deformed, extra limbs, ugly" />
+            </div>
+
+            <div class="row-2">
+              <div class="field">
+                <label for="imgSize">画面比例 / 分辨率</label>
+                <select id="imgSize">
+                  <option value="1024x1024">1024 × 1024（1:1 方形）</option>
+                  <option value="1024x576" selected>1024 × 576（16:9 宽屏，适合接图生视频）</option>
+                  <option value="576x1024">576 × 1024（9:16 竖屏短视频）</option>
+                  <option value="768x512">768 × 512（轻量快速 · 最省单元）</option>
+                </select>
+              </div>
+              <div class="field">
+                <label for="imgSteps">推理步数（Steps）</label>
+                <input id="imgSteps" type="number" min="1" max="50" value="4" />
+              </div>
+            </div>
+
+            <div class="row-2">
+              <div class="field">
+                <label for="imgGuidance">引导强度（Guidance）</label>
+                <input id="imgGuidance" type="number" step="0.5" min="0" max="15" value="0" />
+              </div>
+              <div class="field">
+                <label for="imgSeed">随机种子（-1 为随机）</label>
+                <input id="imgSeed" type="number" value="-1" />
+              </div>
+            </div>
+
+            <button class="btn btn-primary btn-block" id="generateImgBtn">✨ 开始生成图片</button>
+          </div>
+
+          <div class="card preview-card">
+            <div class="card-header">
+              <h2>实时预览</h2>
+              <div class="preview-actions hidden" id="imgResultActions">
+                <button class="btn btn-accent btn-sm" id="sendImgToVideoBtn">🎬 一键转图生视频</button>
+                <a class="btn btn-secondary btn-sm" id="downloadImgLink" download>下载 PNG</a>
+              </div>
+            </div>
+
+            <div class="progress-box hidden" id="imgProgressBox">
+              <div class="progress-head">
+                <span id="imgStageText">正在提交任务...</span>
+                <span id="imgPctText">0%</span>
+              </div>
+              <div class="progress-track"><div class="progress-fill" id="imgProgressFill"></div></div>
+            </div>
+
+            <div class="preview-stage" id="imgPreviewStage">
+              <div class="empty-state">
+                <div class="empty-icon">🖼️</div>
+                <p>生成的图片会自动下载并保存到你本地的 <code>outputs/</code> 文件夹</p>
+                <p class="muted">生成后可点击「一键转图生视频」直接做成动态视频！</p>
+              </div>
+            </div>
+            <div class="meta-footer hidden" id="imgMetaFooter"></div>
+          </div>
+        </div>
+      </section>
+
+      <!-- TAB 2: VIDEO GENERATION -->
+      <section class="panel" id="tab-video">
+        <div class="workspace-grid">
+          <div class="card form-card">
+            <div class="card-header">
+              <h2>视频生成参数</h2>
+              <button class="btn btn-ghost btn-xs" id="unloadGpuBtn2">清理显存</button>
+            </div>
+
+            <div class="field">
+              <label for="vidModel">选择视频模型（根据显卡智能推荐）</label>
+              <select id="vidModel">
+                <option value="ltx-video">LTX-Video 2B（极速 · T4 16GB 可跑 · 支持文生/图生视频）</option>
+                <option value="wan2.1-1.3b">阿里 Wan 2.1 1.3B（画质好 · T4/L4 均可跑 · 文生视频）</option>
+                <option value="wan2.2-5b">阿里 Wan 2.2 TI2V-5B（高画质 · 推荐 L4 24GB / A100 · 文生+图生）</option>
+              </select>
+              <div class="hint" id="vidModelHint">T4 显卡首选 LTX-Video 2B 或 Wan 2.1 1.3B；抢到 L4 / A100 时强烈推荐 Wan 2.2 TI2V-5B。</div>
+            </div>
+
+            <div class="field" id="i2vUploadField">
+              <label>参考首帧图片（可选 · 上传即自动切换为「图生视频」）</label>
+              <div class="upload-zone" id="i2vDropZone">
+                <input type="file" id="i2vFileInput" accept="image/*" hidden />
+                <div id="i2vEmptyHint">
+                  <span>点击上传图片 / 拖拽到此，或在文生图后点击「一键转图生视频」</span>
+                </div>
+                <div class="i2v-preview hidden" id="i2vPreviewBox">
+                  <img id="i2vPreviewImg" alt="首帧参考图" />
+                  <button class="btn btn-danger btn-xs" id="clearI2vBtn" type="button">移除参考图</button>
+                </div>
+              </div>
+            </div>
+
+            <div class="field">
+              <label for="vidPrompt">视频画面与运镜提示词（Prompt）</label>
+              <textarea id="vidPrompt" rows="4" placeholder="例如：A golden retriever running happily through a sunlit meadow, slow motion tracking shot, cinematic lighting, shallow depth of field"></textarea>
+            </div>
+
+            <div class="field">
+              <label for="vidNegative">反向提示词（Negative Prompt）</label>
+              <input id="vidNegative" type="text" value="worst quality, inconsistent motion, blurry, jittery, distorted, watermark, static" />
+            </div>
+
+            <div class="row-2">
+              <div class="field">
+                <label for="vidSize">视频分辨率（越低越快越省单元）</label>
+                <select id="vidSize">
+                  <option value="704x480" selected>704 × 480（推荐 · T4/L4 平衡画质与速度）</option>
+                  <option value="832x480">832 × 480（16:9 标清宽屏）</option>
+                  <option value="512x512">512 × 512（方形快速预览 · 最省单元）</option>
+                  <option value="1280x704">1280 × 704（720p 高清 · 仅推荐 L4/A100）</option>
+                </select>
+              </div>
+              <div class="field">
+                <label for="vidFrames">视频帧数（影响时长）</label>
+                <select id="vidFrames">
+                  <option value="25">25 帧（~1–1.5秒 · 极速测试）</option>
+                  <option value="49" selected>49 帧（~2–3秒 · 推荐）</option>
+                  <option value="81">81 帧（~3.5–5秒 · 较慢）</option>
+                  <option value="97">97 帧（~4秒@24fps · L4/A100推荐）</option>
+                </select>
+              </div>
+            </div>
+
+            <div class="row-3">
+              <div class="field">
+                <label for="vidSteps">步数（Steps）</label>
+                <input id="vidSteps" type="number" min="8" max="60" value="28" />
+              </div>
+              <div class="field">
+                <label for="vidGuidance">引导强度</label>
+                <input id="vidGuidance" type="number" step="0.5" min="1" max="12" value="3.5" />
+              </div>
+              <div class="field">
+                <label for="vidSeed">种子（-1随机）</label>
+                <input id="vidSeed" type="number" value="-1" />
+              </div>
+            </div>
+
+            <button class="btn btn-primary btn-block" id="generateVidBtn">🎬 开始生成视频</button>
+          </div>
+
+          <div class="card preview-card">
+            <div class="card-header">
+              <h2>视频预览</h2>
+              <div class="preview-actions hidden" id="vidResultActions">
+                <a class="btn btn-secondary btn-sm" id="downloadVidLink" download>下载 MP4</a>
+              </div>
+            </div>
+
+            <div class="progress-box hidden" id="vidProgressBox">
+              <div class="progress-head">
+                <span id="vidStageText">正在提交视频任务...</span>
+                <span id="vidPctText">0%</span>
+              </div>
+              <div class="progress-track"><div class="progress-fill" id="vidProgressFill"></div></div>
+            </div>
+
+            <div class="preview-stage" id="vidPreviewStage">
+              <div class="empty-state">
+                <div class="empty-icon">🎞️</div>
+                <p>首次加载某模型时会从 HuggingFace 下载到你的 Google Drive 缓存</p>
+                <p class="muted">之后再次连接 Colab 会直接从云盘秒读，大幅节省计算单元！</p>
+              </div>
+            </div>
+            <div class="meta-footer hidden" id="vidMetaFooter"></div>
+          </div>
+        </div>
+      </section>
+
+      <!-- TAB 3: MINIMAX-H3 HUB -->
+      <section class="panel" id="tab-minimax">
+        <div class="card minimax-card">
+          <div class="card-header">
+            <h2>🐚 MiniMax-H3（海螺 3 开源版 · 33B 音视频全模态）运行专区</h2>
+            <button class="btn btn-secondary btn-sm" id="openColabFolderBtn">在 Finder 打开 Notebook 目录</button>
+          </div>
+
+          <div class="callout callout-warn">
+            <strong>硬件真相与避坑提示：</strong>
+            MiniMax-H3 是 <strong>33B 参数</strong>的超大型音视频一体化模型（原生同步生成立体声 + 视频），原版权重超 65GB：
+            <ul>
+              <li>❌ <strong>T4（16GB 显存）跑不动</strong>，会直接显存/内存溢出。</li>
+              <li>⚠️ <strong>L4（24GB 显存 + 必须开启高 RAM）</strong>：可用 ComfyUI + Q4_K GGUF 量化勉强运行，但下载和推理较慢。</li>
+              <li>✅ <strong>A100（40GB / 80GB + 高 RAM）</strong>：强烈推荐！搭配 ComfyUI + FP8 / GGUF 量化和 Google Drive 缓存体验最稳。</li>
+            </ul>
+          </div>
+
+          <div class="steps-grid">
+            <div class="step-box">
+              <span class="step-num">1</span>
+              <h3>上传专用 Notebook 到 Colab</h3>
+              <p>将项目 <code>colab/Colab_MiniMax_H3_ComfyUI.ipynb</code> 上传到 <a href="https://colab.research.google.com/" target="_blank">Google Colab</a>。</p>
+            </div>
+            <div class="step-box">
+              <span class="step-num">2</span>
+              <h3>选 A100（或 L4）并开启高 RAM</h3>
+              <p>在 Colab 菜单选择 <strong>代码执行程序 → 更改运行时类型</strong>，选中 A100（避开欧美白天高峰更容易抢到）。</p>
+            </div>
+            <div class="step-box">
+              <span class="step-num">3</span>
+              <h3>一键启动 ComfyUI 隧道</h3>
+              <p>运行 Notebook 后，它会自动将 MiniMax-H3 量化权重缓存进你的 Google Drive，并输出一个 <code>trycloudflare.com</code> 地址。</p>
+            </div>
+          </div>
+
+          <div class="comfy-launcher">
+            <label for="comfyUrlInput">粘贴 MiniMax-H3 ComfyUI 临时访问链接</label>
+            <div class="input-group">
+              <input id="comfyUrlInput" type="url" placeholder="https://xxxx.trycloudflare.com" />
+              <button class="btn btn-secondary" id="saveComfyUrlBtn">保存链接</button>
+              <button class="btn btn-primary" id="openComfyBtn">🚀 打开 MiniMax-H3 工作台</button>
+            </div>
+            <p class="muted">提示：用完 MiniMax-H3 后，务必在 Colab Notebook 最后一个单元格点击“立即释放算力”，A100 费率约 6–10 单元/小时。</p>
+          </div>
+        </div>
+      </section>
+
+      <!-- TAB 4: LOCAL GALLERY -->
+      <section class="panel" id="tab-gallery">
+        <div class="card">
+          <div class="card-header">
+            <h2>本地作品库（离线永久保存）</h2>
+            <div class="header-actions">
+              <button class="btn btn-secondary btn-sm" id="openOutputsFolderBtn">📂 在 Finder 打开文件夹</button>
+              <button class="btn btn-ghost btn-sm" id="refreshGalleryBtn">刷新</button>
+            </div>
+          </div>
+          <div class="gallery-grid" id="galleryGrid">
+            <div class="empty-state">
+              <div class="empty-icon">📁</div>
+              <p>还没有本地作品，去生成第一张图片或视频吧！</p>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- TAB 5: QUICK GUIDE -->
+      <section class="panel" id="tab-guide">
+        <div class="card guide-card">
+          <h2>📘 3 分钟快速上手 + 省计算单元秘籍</h2>
+          <div class="guide-sections">
+            <div class="guide-block">
+              <h3>第一步：启动云端显卡引擎</h3>
+              <ol>
+                <li>点击下方按钮在 Finder 打开 <code>colab/</code> 文件夹，找到 <code>Colab_Media_Studio_Server.ipynb</code>。</li>
+                <li>访问 <a href="https://colab.research.google.com/" target="_blank">Google Colab</a> → 文件 → 上传笔记本，选择该文件。</li>
+                <li>点击 <strong>代码执行程序 → 更改运行时类型</strong>：新手测试选 <strong>T4</strong>（最省，约 1.2 单元/小时）；日常出大片选 <strong>L4</strong>（约 2.2 单元/小时，命中率高）。</li>
+                <li>点击 <strong>全部运行</strong>，授权挂载 Google Drive（用于缓存模型和备份作品）。</li>
+                <li>大约 1–2 分钟后，Colab 底部会打印一行 <strong>一键连接码</strong>（格式：<code>https://xxx.trycloudflare.com::你的密钥</code>）。</li>
+              </ol>
+              <button class="btn btn-secondary btn-sm" id="guideOpenColabBtn">📂 打开 colab/ 文件夹</button>
+            </div>
+
+            <div class="guide-block">
+              <h3>第二步：在本地 App 粘贴连接码</h3>
+              <ol>
+                <li>点击右上角 <strong>连接设置</strong>，把 Colab 打印的一键连接码粘贴进去并点保存。</li>
+                <li>看到右上角变成绿灯并显示 GPU 型号（例如 <code>Tesla T4 · 15GB</code>）即可像用本地显卡一样生图、生视频！</li>
+                <li>所有生成的图片和视频都会自动下载到你电脑的 <code>outputs/</code> 文件夹，并同步备份一份到 Google Drive。</li>
+              </ol>
+            </div>
+
+            <div class="guide-block">
+              <h3>💡 黄金省单元技巧（200 单元用出 500 单元效果）</h3>
+              <ul>
+                <li><strong>用完点右上角红色「释放算力」</strong>：这会远程执行 <code>runtime.unassign()</code> 彻底关闭 Colab 运行时，立刻停止扣费！千万别只关网页。</li>
+                <li><strong>先图后视频，低分辨率试水</strong>：先用 <code>FLUX.1-schnell</code>（4 步秒出图）挑出满意的画面，再一键转 <code>图生视频</code>（先用 25 帧 / 480p 试动效，满意再拉高帧数）。</li>
+                <li><strong>充分利用 Google One 缓存</strong>：开启 Drive 挂载后，每个模型只在第一次下载，之后重连秒加载，省下大量等待扣费时间。</li>
+                <li><strong>别死磕高峰期 A100</strong>：日常用 <strong>L4（24GB）</strong> 跑 Wan 2.2 5B 和 FLUX 性价比最高，200 单元可跑约 70–100 小时。</li>
+              </ul>
+            </div>
+          </div>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <!-- Connect Settings Modal -->
+  <div class="modal-backdrop hidden" id="connectModal">
+    <div class="modal">
+      <div class="modal-header">
+        <h3>连接你的 Google Colab 云端引擎</h3>
+        <button class="btn btn-ghost btn-xs" id="closeModalBtn">✕</button>
+      </div>
+      <div class="modal-body">
+        <div class="field">
+          <label for="connectCodeInput">方式 A：粘贴 Colab 输出的「一键连接码」（推荐）</label>
+          <input id="connectCodeInput" type="text" placeholder="https://xxxx.trycloudflare.com::你的安全密钥" />
+          <div class="hint">自动解析链接和密钥，一步到位。</div>
+        </div>
+        <div class="divider"><span>或者分别填写</span></div>
+        <div class="field">
+          <label for="colabUrlInput">Colab 隧道地址</label>
+          <input id="colabUrlInput" type="url" placeholder="https://xxxx.trycloudflare.com" />
+        </div>
+        <div class="field">
+          <label for="colabTokenInput">安全密钥（Token）</label>
+          <input id="colabTokenInput" type="password" placeholder="粘贴 Colab 单元格输出的 Token" />
+        </div>
+        <div class="field">
+          <label for="idleAlertInput">空闲省单元提醒阈值（分钟）</label>
+          <input id="idleAlertInput" type="number" min="3" max="60" value="10" />
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-ghost" id="cancelModalBtn">取消</button>
+        <button class="btn btn-primary" id="saveConnectBtn">保存并测试连接</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="toast-container" id="toastContainer"></div>
+  <script src="/app.js"></script>
+</body>
+</html>
