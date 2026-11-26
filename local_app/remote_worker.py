@@ -19,12 +19,20 @@ import traceback
 import torch
 from PIL import Image
 
-os.environ["HF_HUB_ENABLE_HF_TRANSFER"] = "1"
+os.environ["HF_XET_HIGH_PERFORMANCE"] = "1"
 os.environ["HF_HUB_DISABLE_SYMLINKS_WARNING"] = "1"
+os.environ["HF_HUB_DISABLE_IMPLICIT_TOKEN"] = "1"
 
 # Persist loaded pipeline across `colab exec` invocations in the same kernel
 if "_STUDIO_STATE" not in globals():
     _STUDIO_STATE = {"model_key": None, "pipe": None}
+
+
+def _enable_vae_tiling(pipe) -> None:
+    if hasattr(pipe, "vae") and pipe.vae is not None and hasattr(pipe.vae, "enable_tiling"):
+        pipe.vae.enable_tiling()
+    elif hasattr(pipe, "enable_vae_tiling"):
+        pipe.enable_vae_tiling()
 
 
 def _emit(tag: str, data: dict) -> None:
@@ -99,7 +107,7 @@ def _get_pipeline(model_id: str, has_init_image: bool, vram_total_gb: float):
                 use_safetensors=True,
             )
         pipe.enable_model_cpu_offload()
-        pipe.enable_vae_tiling()
+        _enable_vae_tiling(pipe)
 
     elif model_id == "z-image-turbo":
         from diffusers import ZImagePipeline
@@ -111,8 +119,7 @@ def _get_pipeline(model_id: str, has_init_image: bool, vram_total_gb: float):
             pipe.enable_sequential_cpu_offload()
         else:
             pipe.enable_model_cpu_offload()
-        if hasattr(pipe, "vae") and hasattr(pipe.vae, "enable_tiling"):
-            pipe.vae.enable_tiling()
+        _enable_vae_tiling(pipe)
 
     elif model_id in ("shuttle-3.1", "flux-schnell"):
         from diffusers import FluxPipeline
@@ -124,8 +131,7 @@ def _get_pipeline(model_id: str, has_init_image: bool, vram_total_gb: float):
             pipe.enable_sequential_cpu_offload()
         else:
             pipe.enable_model_cpu_offload()
-        if hasattr(pipe, "vae") and hasattr(pipe.vae, "enable_tiling"):
-            pipe.vae.enable_tiling()
+        _enable_vae_tiling(pipe)
 
     elif model_id == "sdxl-base":
         from diffusers import StableDiffusionXLPipeline
@@ -136,7 +142,7 @@ def _get_pipeline(model_id: str, has_init_image: bool, vram_total_gb: float):
             use_safetensors=True,
         )
         pipe.enable_model_cpu_offload()
-        pipe.enable_vae_tiling()
+        _enable_vae_tiling(pipe)
 
     elif model_id == "ltx-video":
         if has_init_image:
@@ -155,8 +161,7 @@ def _get_pipeline(model_id: str, has_init_image: bool, vram_total_gb: float):
             pipe.enable_sequential_cpu_offload()
         else:
             pipe.enable_model_cpu_offload()
-        if hasattr(pipe, "vae") and hasattr(pipe.vae, "enable_tiling"):
-            pipe.vae.enable_tiling()
+        _enable_vae_tiling(pipe)
 
     elif model_id == "wan2.1-1.3b":
         from diffusers import AutoencoderKLWan, WanPipeline
