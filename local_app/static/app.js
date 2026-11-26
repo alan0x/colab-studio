@@ -703,6 +703,21 @@
     }
   });
 
+  // ==================== THEME SWITCHER (PAPER LIGHT <-> CHARCOAL DARK) ====================
+  function syncThemeIcons() {
+    const isPaper = document.documentElement.getAttribute("data-theme") === "paper";
+    $("themeIconSun")?.classList.toggle("hidden", isPaper);
+    $("themeIconMoon")?.classList.toggle("hidden", !isPaper);
+  }
+  $("themeToggleBtn")?.addEventListener("click", () => {
+    const cur = document.documentElement.getAttribute("data-theme") || "paper";
+    const next = cur === "paper" ? "dark" : "paper";
+    document.documentElement.setAttribute("data-theme", next);
+    localStorage.setItem("studio_theme", next);
+    syncThemeIcons();
+  });
+  syncThemeIcons();
+
   // ==================== TOPBAR POPOVERS (HARDWARE & DRIVE) ====================
   function closeTopPopovers() {
     $("hwPopover").classList.add("hidden");

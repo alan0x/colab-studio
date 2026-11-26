@@ -93,9 +93,8 @@ final class StudioAppDelegate: NSObject, NSApplicationDelegate, WKUIDelegate, WK
             backing: .buffered,
             defer: false
         )
-        window.title = "Colab Canvas Studio"
-        window.appearance = NSAppearance(named: .darkAqua)
-        window.backgroundColor = NSColor(red: 8/255, green: 9/255, blue: 14/255, alpha: 1.0)
+        window.title = "Colab Studio"
+        window.backgroundColor = NSColor(red: 246/255, green: 244/255, blue: 238/255, alpha: 1.0)
         window.titlebarAppearsTransparent = true
         window.titleVisibility = .hidden
         window.isMovableByWindowBackground = false
