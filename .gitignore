@@ -1,0 +1,11 @@
+# Local user credentials & tunnel config
+config.json
+
+# Generated media & local gallery index
+outputs/*
+!outputs/.gitkeep
+
+# Python & macOS junk
+__pycache__/
+*.py[cod]
+.DS_Store
