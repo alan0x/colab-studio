@@ -297,7 +297,7 @@
     const layer = $("nodesLayer");
     layer.innerHTML = "";
     const totalCount = state.items.length + state.activeJobs.length;
-    $("nodeCountLabel").textContent = `${totalCount} 个画布节点`;
+    $("nodeCountLabel").textContent = `${totalCount}`;
     $("canvasWelcome").classList.toggle("hidden", totalCount > 0);
 
     // 1. Render completed / material items
@@ -574,14 +574,16 @@
 
     // 2. GPU Status & Toggle Button
     const sess = snap.session || {};
+    const llm = snap.llm || {};
     const toggleBtn = $("toggleGpuBtn");
     if (sess.active) {
       $("gpuDot").className = "status-dot online";
       const gpuLabel = sess.gpu_name_detail || `NVIDIA ${sess.accelerator || "GPU"}`;
-      const vramTxt = sess.vram_total_gb
-        ? `${sess.vram_used_gb ?? 0}/${sess.vram_total_gb}GB`
-        : sess.vram_label || "";
-      $("gpuStatusText").textContent = `${gpuLabel}${vramTxt ? ` · ${vramTxt}` : ""}`;
+      const brainTag = llm.ready && llm.model_id ? ` · 🧠 ${llm.model_id}` : "";
+      const vramTxt = !brainTag && sess.vram_total_gb
+        ? ` · ${sess.vram_used_gb ?? 0}/${sess.vram_total_gb}GB`
+        : !brainTag && sess.vram_label ? ` · ${sess.vram_label}` : "";
+      $("gpuStatusText").textContent = `${gpuLabel}${brainTag}${vramTxt}`;
       toggleBtn.textContent = "释放显卡";
       toggleBtn.className = "hud-btn hud-btn-danger";
       toggleBtn.disabled = Boolean(snap.active_job_id);
@@ -940,6 +942,29 @@
   });
 
   // ==================== BOOT ====================
+  window.StudioBridge = {
+    toast,
+    refreshStatus,
+    refreshCanvas: async () => {
+      try {
+        const canvas = await api("/api/canvas");
+        state.items = canvas.items || [];
+        state.activeJobs = canvas.active_jobs || [];
+        renderCanvas();
+      } catch (_) {}
+    },
+    focusItem: (itemId) => {
+      const it = state.items.find((x) => x.id === itemId);
+      if (it) {
+        selectNode(itemId);
+        state.scale = 1.0;
+        state.pan.x = window.innerWidth / 2 - (it.x || 0) - 170;
+        state.pan.y = window.innerHeight / 2 - (it.y || 0) - 160;
+        applyTransform();
+      }
+    },
+  };
+
   async function boot() {
     if (new URLSearchParams(window.location.search).get("platform") === "macos") {
       document.body.classList.add("platform-macos");

@@ -3,12 +3,91 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Colab Canvas Studio — AI 无限画布创作台</title>
+  <title>Colab Agent Studio — 云端多模态 AI Agent & 无限画布</title>
   <link rel="stylesheet" href="/styles.css" />
 </head>
 <body>
-  <!-- Full-Viewport Infinite Canvas -->
-  <div class="canvas-viewport" id="canvasViewport">
+  <!-- ==================== AI AGENT WORKSPACE (ChatGPT / Claude / Antigravity Style) ==================== -->
+  <div class="agent-workspace" id="agentWorkspace">
+    <!-- Left Sidebar: Conversations + Brain & Tool Toggles -->
+    <aside class="agent-sidebar">
+      <button class="new-chat-btn" id="newChatBtn">
+        <span>＋</span> 新建对话
+      </button>
+
+      <div class="chat-list" id="chatSessionList"></div>
+
+      <div class="agent-config-panel">
+        <div class="cfg-title">🧠 云端大脑模型（Colab GPU）</div>
+        <select class="cfg-select" id="agentModelSelect">
+          <option value="qwen3.8-27b">Qwen3.8-27B · 旗舰全模态 (L4/A100)</option>
+          <option value="qwen3.8-27b-t4">Qwen3.8-27B Q2 · 轻量版 (T4 可跑)</option>
+          <option value="qwen3.5-9b">Qwen3.5-9B · 极速全模态 (T4/L4)</option>
+          <option value="qwen2.5-vl-7b">Qwen2.5-VL-7B · 视觉专家 (T4)</option>
+        </select>
+
+        <div class="cfg-toggles">
+          <label class="cfg-check"><input type="checkbox" id="chkThinking" checked /><span>🧠 深度思考链</span></label>
+          <label class="cfg-check"><input type="checkbox" id="chkToolCanvas" checked /><span>🎨 无限画布生图/视频</span></label>
+          <label class="cfg-check"><input type="checkbox" id="chkToolWeb" checked /><span>🌐 实时联网搜索</span></label>
+          <label class="cfg-check"><input type="checkbox" id="chkToolLocal" checked /><span>💻 本地文件与终端</span></label>
+          <label class="cfg-check"><input type="checkbox" id="chkRequireApproval" checked /><span>🛡️ 写文件/命令前确认</span></label>
+        </div>
+
+        <div class="cfg-ws">
+          <span class="cfg-label">本地工作区目录</span>
+          <input type="text" id="agentWorkspaceInput" placeholder="输入本地项目路径..." />
+        </div>
+      </div>
+    </aside>
+
+    <!-- Main Chat Area -->
+    <main class="agent-main">
+      <div class="chat-scroll" id="chatScroll">
+        <div class="chat-welcome" id="agentWelcome">
+          <div class="welcome-badge">✦ Qwen3.8-27B 全模态大脑 · 零网页托管 Colab GPU</div>
+          <h1>你的本地 AI Agent 工作台</h1>
+          <p>支持看图识图、深度思考、实时联网、读写本地代码运行终端，还能直接用自然语言指挥无限画布生成图片和视频。</p>
+          <div class="agent-starters">
+            <button class="starter-card" data-prompt="帮我构思一个纯日系二次元动漫风格的「机械末日废土中一尘不染的长发少女」提示词，然后直接调用无限画布的 Animagine XL 4.0 为我生成一张 16:9 图片。">
+              <strong>🎨 指挥 Agent 画图</strong>
+              <span>自动构思专业提示词并调用画布生图</span>
+            </button>
+            <button class="starter-card" data-prompt="请帮我联网搜索 Qwen3.8-27B 的最新特性和能力亮点，并整理成清晰的中文对比摘要。">
+              <strong>🌐 实时联网调研</strong>
+              <span>调用搜索引擎与网页抓取总结最新资讯</span>
+            </button>
+            <button class="starter-card" data-prompt="请列出当前本地工作区的文件，然后写一个 Python 脚本 hello_agent.py 打印系统信息并运行它。">
+              <strong>💻 本地编程与终端</strong>
+              <span>读写工作区文件、运行脚本（执行前确认）</span>
+            </button>
+            <button class="starter-card" id="starterAttachImgBtn">
+              <strong>🖼️ 发图给多模态模型看</strong>
+              <span>拖入截图、设计稿或代码文件直接分析</span>
+            </button>
+          </div>
+        </div>
+
+        <div class="chat-messages" id="chatMessages"></div>
+      </div>
+
+      <!-- Bottom Chat Composer -->
+      <div class="chat-composer-wrap">
+        <div class="chat-attachments hidden" id="chatAttachments"></div>
+        <div class="chat-composer">
+          <input type="file" id="chatFileInput" accept="image/*,.txt,.md,.py,.js,.ts,.json,.csv,.html,.css,.yml,.yaml,.sh" multiple hidden />
+          <button class="chat-attach-btn" id="chatAttachBtn" title="上传图片（供多模态识别）或代码/文本文档">📎</button>
+          <textarea id="chatInput" rows="2" placeholder="向 Agent 提问、发图分析、写代码，或直接说「帮我画一张…」… (Enter 发送，Shift+Enter 换行)"></textarea>
+          <button class="generate-cta chat-send-btn" id="chatSendBtn">
+            <span id="chatSendText">发送</span>
+          </button>
+        </div>
+      </div>
+    </main>
+  </div>
+
+  <!-- Full-Viewport Infinite Canvas (Hidden while in Agent view) -->
+  <div class="canvas-viewport hidden" id="canvasViewport">
     <div class="canvas-grid" id="canvasGrid"></div>
     <div class="canvas-world" id="canvasWorld">
       <svg class="connector-layer" id="connectorLayer"></svg>
@@ -44,13 +123,13 @@
     </div>
   </div>
 
-  <!-- TOP FLOATING HUD: Brand + Live GPU + Compute Units Balance + Google Account -->
+  <!-- TOP FLOATING HUD: Brand + Workspace Mode Switch + Live GPU + Quota + Drive + Google Account -->
   <header class="hud-top">
     <div class="hud-capsule brand-capsule">
       <div class="brand-mark">✦</div>
-      <div class="brand-text">
-        <span class="brand-name">Colab Canvas</span>
-        <span class="brand-count" id="nodeCountLabel">0 个画布节点</span>
+      <div class="workspace-switcher">
+        <button class="ws-tab active" data-view="agent" id="switchAgentBtn">💬 AI Agent</button>
+        <button class="ws-tab" data-view="canvas" id="switchCanvasBtn">🎨 无限画布 <span class="ws-count" id="nodeCountLabel">0</span></button>
       </div>
     </div>
 
@@ -128,8 +207,8 @@
     </div>
   </header>
 
-  <!-- LEFT FLOATING TOOL RAIL (LibTV / Figma Style) -->
-  <aside class="tool-rail">
+  <!-- LEFT FLOATING TOOL RAIL (LibTV / Figma Style, Canvas View Only) -->
+  <aside class="tool-rail hidden" id="canvasToolRail">
     <button class="rail-btn active" id="toolSelectBtn" title="选择与拖拽卡片 (V)">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 4l7 17 2.5-7.5L21 11 4 4z"/></svg>
     </button>
@@ -152,15 +231,15 @@
     </button>
   </aside>
 
-  <!-- BOTTOM-LEFT ZOOM PILL -->
-  <div class="zoom-pill">
+  <!-- BOTTOM-LEFT ZOOM PILL (Canvas View Only) -->
+  <div class="zoom-pill hidden" id="canvasZoomPill">
     <button class="zoom-btn" id="zoomOutBtn" title="缩小">−</button>
     <button class="zoom-val" id="zoomResetBtn" title="重置为 100%">100%</button>
     <button class="zoom-btn" id="zoomInBtn" title="放大">+</button>
   </div>
 
-  <!-- BOTTOM FLOATING COMPOSER DOCK (LibTV / Sora / Kling Signature Bar) -->
-  <div class="composer-wrap">
+  <!-- BOTTOM FLOATING COMPOSER DOCK (Canvas View Only) -->
+  <div class="composer-wrap hidden" id="canvasComposerWrap">
     <!-- Advanced Settings Popover -->
     <div class="adv-popover hidden" id="advPopover">
       <div class="adv-header">
@@ -307,5 +386,6 @@
 
   <div class="toast-stack" id="toastStack"></div>
   <script src="/app.js"></script>
+  <script src="/agent.js"></script>
 </body>
 </html>

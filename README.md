@@ -1,27 +1,27 @@
-# Colab Canvas Studio — 零网页 AI 无限画布本地创作台
+# Colab Agent Studio — 云端多模态 AI Agent & 无限画布桌面端 (v2.0)
 
-无需打开 Google Colab 网页！基于 Google 官方 [`google-colab-cli`](https://pypi.org/project/google-colab-cli/)，让你在 Mac 本地打开一个 **LibTV 风格的无限画布创作台**，直接拖入参考素材、输入提示词、查看实时进度条、在画布上预览与编排生成的图片和视频，并实时监控当前云端显卡、Google 账号剩余计算单元与可用时长。
+无需打开 Google Colab 网页！基于 Google 官方 [`google-colab-cli`](https://pypi.org/project/google-colab-cli/)，把你的 Google One / Google AI Pro 赠送的 200 计算单元，变成一个集 **「类 ChatGPT / Claude / Antigravity 全能多模态 Agent」** 与 **「LibTV 风格 AI 无限画布」** 于一体的 macOS & Windows 独立桌面应用。
 
 ---
 
-## 核心体验
+## 核心能力
 
-1. **完全免开 Colab 网页**：首次在 App 内通过 Google 官方 OAuth 登录一次（凭证安全保存在 macOS 钥匙串），之后打开 App 即可直接使用你的 Google One / Google AI Pro 赠送的 Colab 算力。
-2. **LibTV 风格无限画布**：
+1. **💬 全能多模态 AI Agent 工作台（直跑 `Qwen3.8-27B` 等开源大模型）**：
+   - 在 Colab GPU 上自动启动预编译 CUDA `llama-server`，支持 **`Qwen3.8-27B`**（L4/A100 旗舰全模态 + T4 Q2 轻量版）、**`Qwen3.5-9B`** 与 **`Qwen2.5-VL-7B`**。
+   - 原生支持**发图识图、上传代码/文档、深度思考链折叠、流式打字机输出与多会话历史管理**。
+   - 内置四大 Agent 工具套件：
+     - 🎨 **联动无限画布**：自然语言指挥 Agent 构思提示词、调用生图/图生视频并自动落入画布与 Google Drive（单卡自动显存热切换）。
+     - 🌐 **实时联网搜索与网页正文抓取**。
+     - 💻 **本地工作区文件与终端（类似 Claude Code / Antigravity）**：读写本地项目文件、运行 Python/Shell 脚本（默认带安全确认卡片，且严格限定在工作区目录内）。
+2. **🎨 LibTV 风格无限画布（Media Studio）**：
    - 自由拖拽、缩放（25%–200%）、抓手平移、一键整齐排版。
    - **直接拖入本地图片到画布**作为参考素材，选中任意图片点击 **「以此图生视频」**，生成的视频卡片会通过发光贝塞尔曲线与原图自动连线。
-   - 生成时画布上即时弹出**实时进度卡片**，完成后自动下载成品到 `outputs/` 并无缝切换为高清图片/可播放视频。
-3. **Google Drive 自动云端同步（充分利用 Google One 空间）**：
+   - 支持 `RealVisXL V5.0`、`Animagine XL 4.0`、`阿里 Z-Image Turbo`、`Shuttle 3.1`、`LTX-Video 2B`、`阿里 Wan 2.2 TI2V-5B`、`Wan 2.1 1.3B`。
+3. **☁️ Google Drive 自动云端同步（充分利用 Google One 空间）**：
    - 直接复用同一次 Google OAuth 授权（自带 `drive.file` 权限，**无需额外登录**）。
-   - 所有导入的参考素材自动备份到 `Google Drive / ColabCanvasStudio/materials/`，所有生成的图片和视频自动上传到 `ColabCanvasStudio/outputs/`，画布坐标与连线关系自动同步到 `canvas.json`。
-   - 支持顶部 **☁️ Drive 云盘** 一键双向同步/恢复，以及在卡片与预览页直达 Google Drive 查看。
-4. **实时显卡与算力余额 HUD**：
-   - 顶部悬浮条实时显示：**当前分配的显卡与显存**、**账号真实剩余计算单元（CU）**、**按当前费率预计还可使用多少小时**。
-   - **智能省单元守护**：支持待机按需自动开机 + **空闲自动释放显卡**（默认 10 分钟空闲自动执行 `colab stop`），也可随时一键手动释放，彻底杜绝忘关机扣费。
-4. **全场景模型支持**：
-   - **生图**：`FLUX.1-schnell`（4 步极速高清）、`SDXL 1.0 Base`
-   - **生视频 / 图生视频**：`LTX-Video 2B`（T4/L4/A100 极速省单元）、`阿里 Wan 2.2 TI2V-5B`（L4/A100 电影级画质）、`阿里 Wan 2.1 1.3B`
-   - **MiniMax-H3（海螺 3 · 33B 音视频）**：提供独立 [colab/Colab_MiniMax_H3_ComfyUI.ipynb](colab/Colab_MiniMax_H3_ComfyUI.ipynb)（建议抢到 A100 40GB/80GB 时使用）
+   - 所有参考素材、生成图片/视频及画布布局自动备份到 `Google Drive / ColabCanvasStudio/`，支持一键双向恢复。
+4. **⚡ 实时显卡 & 算力余额 HUD（省单元守护）**：
+   - 顶部悬浮条实时显示当前显卡、当前大脑模型、账号真实剩余计算单元（CU）与预计可用小时数；支持默认 10 分钟空闲自动关机与一键释放算力。
 
 ---
 
