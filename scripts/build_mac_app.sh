@@ -3,6 +3,8 @@ set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 APP_NAME="Colab Canvas Studio"
+VERSION="${1:-1.0.0}"
+ARCH="$(uname -m)"
 BUNDLE_ID="com.alan0x.colab-canvas-studio"
 DIST_DIR="$REPO_ROOT/dist"
 APP_BUNDLE="$DIST_DIR/$APP_NAME.app"
@@ -10,9 +12,12 @@ CONTENTS="$APP_BUNDLE/Contents"
 MACOS_DIR="$CONTENTS/MacOS"
 RES_DIR="$CONTENTS/Resources"
 ICONSET_DIR="$DIST_DIR/AppIcon.iconset"
+DMG_STAGING="$DIST_DIR/dmg_staging"
+DMG_NAME="Colab-Canvas-Studio-v${VERSION}-macOS-${ARCH}.dmg"
+DMG_PATH="$DIST_DIR/$DMG_NAME"
 
-echo "🔨 Building $APP_NAME.app ..."
-rm -rf "$APP_BUNDLE" "$ICONSET_DIR"
+echo "🔨 Building $APP_NAME v$VERSION ($ARCH) ..."
+rm -rf "$APP_BUNDLE" "$ICONSET_DIR" "$DMG_STAGING" "$DMG_PATH" "${DMG_PATH}.sha256"
 mkdir -p "$MACOS_DIR" "$RES_DIR" "$ICONSET_DIR"
 
 # 1. Generate high-res vector-rendered macOS App Icon via Swift CoreGraphics
@@ -156,9 +161,9 @@ cat > "$CONTENTS/Info.plist" <<PLIST
   <key>CFBundleIdentifier</key>
   <string>$BUNDLE_ID</string>
   <key>CFBundleVersion</key>
-  <string>1.0.0</string>
+  <string>$VERSION</string>
   <key>CFBundleShortVersionString</key>
-  <string>1.0.0</string>
+  <string>$VERSION</string>
   <key>CFBundleExecutable</key>
   <string>ColabCanvasStudio</string>
   <key>CFBundleIconFile</key>
@@ -186,6 +191,36 @@ mkdir -p "$HOME/Applications"
 rm -rf "$HOME/Applications/$APP_NAME.app"
 cp -R "$APP_BUNDLE" "$HOME/Applications/$APP_NAME.app"
 
+# 7. Create drag-to-install macOS .dmg installer + SHA256 checksum
+mkdir -p "$DMG_STAGING"
+cp -R "$APP_BUNDLE" "$DMG_STAGING/$APP_NAME.app"
+ln -s /Applications "$DMG_STAGING/Applications"
+cat > "$DMG_STAGING/安装说明.txt" <<'NOTE'
+Colab Canvas Studio 安装说明 (macOS)
+====================================
+
+1. 将「Colab Canvas Studio.app」拖入右侧「Applications」文件夹即可完成安装。
+2. 首次运行前请确保系统已安装 Python 3 与 Google 官方 Colab CLI：
+     uv tool install google-colab-cli
+   （或 pip3 install google-colab-cli）
+3. 如果首次双击时 macOS 提示“无法验证开发者”（因为是开源自签名包）：
+   在终端运行一次即可放行：
+     xattr -cr "/Applications/Colab Canvas Studio.app"
+4. 打开 App 后点击右上角「登录 Google 账号」完成一次授权，即可免开 Colab 网页直接生图、生视频并自动同步 Google Drive！
+NOTE
+
+hdiutil create \
+  -volname "$APP_NAME v$VERSION" \
+  -srcfolder "$DMG_STAGING" \
+  -ov \
+  -format UDZO \
+  "$DMG_PATH" >/dev/null
+rm -rf "$DMG_STAGING"
+
+(cd "$DIST_DIR" && shasum -a 256 "$DMG_NAME" > "${DMG_NAME}.sha256")
+
 echo "✅ Packaged successfully:"
-echo "   - $APP_BUNDLE"
-echo "   - $HOME/Applications/$APP_NAME.app"
+echo "   - App: $APP_BUNDLE"
+echo "   - Installed: $HOME/Applications/$APP_NAME.app"
+echo "   - Installer DMG: $DMG_PATH"
+echo "   - Checksum: ${DMG_PATH}.sha256"

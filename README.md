@@ -25,7 +25,30 @@
 
 ---
 
-## 快速启动
+## 下载安装（macOS 独立桌面 App）
+
+前往 [GitHub Releases](https://github.com/alan0x/colab-media-studio/releases/latest) 下载最新的 `.dmg` 安装包（例如 `Colab-Canvas-Studio-v1.0.0-macOS-arm64.dmg`）：
+
+1. 打开 `.dmg`，将 **Colab Canvas Studio.app** 拖入 **Applications** 文件夹。
+2. 安装 Google 官方 Colab CLI（仅需一次）：
+   ```bash
+   uv tool install google-colab-cli
+   # 或 pip3 install google-colab-cli
+   ```
+3. 如首次打开时 macOS 提示“无法验证开发者”（开源自签名应用），在终端执行一次放行命令即可：
+   ```bash
+   xattr -cr "/Applications/Colab Canvas Studio.app"
+   ```
+4. 打开 **Colab Canvas Studio**，点击右上角 **「登录 Google 账号」** 完成一次授权，即可直接拖入素材、输入提示词生成图片与视频！
+
+### 从源码自行构建 `.app` 和 `.dmg`
+```bash
+./scripts/build_mac_app.sh 1.0.0
+```
+
+---
+
+## 快速启动（开发模式）
 
 1. 双击根目录的 **`启动 Colab Media Studio.command`**（或在终端运行 `python3 local_app/server.py`）。
    - 启动器会自动检测并安装 `google-colab-cli`。

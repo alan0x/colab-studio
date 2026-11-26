@@ -531,6 +531,11 @@
     if (!m) return;
     $("stepsInput").value = m.steps;
     $("guidanceInput").value = m.guidance;
+    if (m.id === "animagine-xl-4") {
+      $("negPromptInput").value = "photorealistic, realistic, 3d render, real life, photo, worst quality, low quality, blurry, watermark, deformed";
+    } else if (state.mode === "image") {
+      $("negPromptInput").value = "worst quality, low quality, blurry, watermark, deformed, extra limbs";
+    }
   }
 
   document.querySelectorAll(".mode-btn").forEach((b) => b.addEventListener("click", () => setMode(b.dataset.mode)));
