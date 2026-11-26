@@ -109,6 +109,25 @@ def _get_pipeline(model_id: str, has_init_image: bool, vram_total_gb: float):
         pipe.enable_model_cpu_offload()
         _enable_vae_tiling(pipe)
 
+    elif model_id == "animagine-xl-4":
+        from diffusers import StableDiffusionXLPipeline
+        repo = "cagliostrolab/animagine-xl-4.0"
+        try:
+            pipe = StableDiffusionXLPipeline.from_pretrained(
+                repo,
+                torch_dtype=torch.float16,
+                variant="fp16",
+                use_safetensors=True,
+            )
+        except Exception:
+            pipe = StableDiffusionXLPipeline.from_pretrained(
+                repo,
+                torch_dtype=torch.float16,
+                use_safetensors=True,
+            )
+        pipe.enable_model_cpu_offload()
+        _enable_vae_tiling(pipe)
+
     elif model_id == "z-image-turbo":
         from diffusers import ZImagePipeline
         pipe = ZImagePipeline.from_pretrained(
@@ -257,7 +276,7 @@ def _main():
         )
         if "callback_on_step_end" in call_params:
             kwargs["callback_on_step_end"] = step_callback
-        if model_id in ("realvis-xl", "sdxl-base") and negative_prompt and "negative_prompt" in call_params:
+        if model_id in ("realvis-xl", "animagine-xl-4", "sdxl-base") and negative_prompt and "negative_prompt" in call_params:
             kwargs["negative_prompt"] = negative_prompt
         image = pipe(**kwargs).images[0]
         out_path = f"{remote_output_base}.png"
