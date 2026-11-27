@@ -6,11 +6,11 @@
 
 基于官方 [`google-colab-cli`](https://pypi.org/project/google-colab-cli/)，把 Google One / Google AI Pro 赠送的 200 计算单元，变成一个集 **开源多模态 Agent（`Qwen3.8-27B`）** 与 **无限画布生图 / 视频** 于一体的 macOS & Windows 原生桌面工作台。
 
-[![Release](https://img.shields.io/github/v/release/alan0x/colab-media-studio?style=flat-square&color=1c1917&labelColor=e7e3d9)](https://github.com/alan0x/colab-media-studio/releases/latest)
-[![Platform](https://img.shields.io/badge/platform-macOS%20%7C%20Windows-1c1917?style=flat-square&labelColor=e7e3d9)](https://github.com/alan0x/colab-media-studio/releases/latest)
+[![Release](https://img.shields.io/github/v/release/alan0x/colab-studio?style=flat-square&color=1c1917&labelColor=e7e3d9)](https://github.com/alan0x/colab-studio/releases/latest)
+[![Platform](https://img.shields.io/badge/platform-macOS%20%7C%20Windows-1c1917?style=flat-square&labelColor=e7e3d9)](https://github.com/alan0x/colab-studio/releases/latest)
 [![Models](https://img.shields.io/badge/models-Qwen3.8--27B%20%C2%B7%20Diffusers-1c1917?style=flat-square&labelColor=e7e3d9)](#核心能力)
 
-[下载最新版 (v2.1.0)](https://github.com/alan0x/colab-media-studio/releases/latest) · [界面预览](#界面预览) · [核心能力](#核心能力) · [安装指南](#下载安装)
+[下载最新版 (v2.1.0)](https://github.com/alan0x/colab-studio/releases/latest) · [界面预览](#界面预览) · [核心能力](#核心能力) · [安装指南](#下载安装)
 
 <br />
 
@@ -76,7 +76,7 @@
 
 ## 下载安装
 
-前往 [GitHub Releases](https://github.com/alan0x/colab-media-studio/releases/latest) 下载对应系统的独立桌面安装包：
+前往 [GitHub Releases](https://github.com/alan0x/colab-studio/releases/latest) 下载对应系统的独立桌面安装包：
 
 ### Windows 10 / 11（免配环境 · 开箱即用）
 - **安装版（推荐）**：下载 `Colab-Canvas-Studio-v2.1.0-Windows-x64-Setup.exe`，双击安装即可（内置 Python、WebView2 桌面壳与 `google-colab-cli`，**无需安装任何依赖**）。
